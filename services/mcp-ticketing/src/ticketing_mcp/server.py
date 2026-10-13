@@ -35,7 +35,7 @@ from .tools import (
     get_ticket,
     search_tickets,
 )
-from .writes import IdempotentWriter
+from .writes import IdempotentWriter, TicketingTransport
 
 #: Reported to clients on initialize.
 SERVER_NAME = "ticketing"
@@ -74,14 +74,16 @@ def to_call_tool_result(outcome: ToolOutcome) -> CallToolResult:
 def build_server(
     settings: ServerSettings,
     *,
-    client: TicketingClient | None = None,
+    client: TicketingTransport | None = None,
     ledger: IdempotencyLedger | None = None,
-) -> tuple[MCPServer[Any], TicketingClient]:
+) -> tuple[MCPServer[Any], TicketingTransport]:
     """Wire the four tools onto an `MCPServer` and return it with its client.
 
-    The client and ledger are injectable so an integration test can point the server at a
-    running instance of the Stage 1 mock, or at a scripted transport, without changing any
-    of the wiring below.
+    ``client`` is typed as the `TicketingTransport` protocol rather than the concrete
+    `TicketingClient` for the same reason the writer is: a test can then inject a scripted
+    transport and assert on the registered tool schemas without a live server or a cast,
+    while `_assert_transport_conformance` in `writes.py` keeps the real client checked
+    against the same protocol.
     """
     ticketing = client or TicketingClient(
         TicketingConfig(
