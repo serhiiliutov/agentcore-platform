@@ -29,6 +29,11 @@ INDEX_HEAD = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentCore - IT Helpdesk Agent</title>
+<!-- Inline, so the browser does not request /favicon.ico. It did, nothing served it, and the
+     console logged a 404 on every load - which reads like a broken page to anyone who opens
+     devtools, and is the first thing a reviewer sees. A data URI needs no static-file mount,
+     which is the same reason this whole page is not a file on disk. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236aa2ff'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #12141a;
@@ -121,7 +126,11 @@ INDEX_HEAD = """<!DOCTYPE html>
 </main>
 """
 #: The script, kept separate from the markup only so the two are readable in one file each.
-INDEX_SCRIPT = """
+#:
+#: Raw, because the JavaScript contains regexes with ``\d`` in them and a non-raw string would
+#: make Python interpret those escapes — which it warns about on every start, and would one day
+#: silently rewrite a pattern instead.
+INDEX_SCRIPT = r"""
 <script>
 (function () {
   "use strict";
@@ -151,6 +160,31 @@ INDEX_SCRIPT = """
 
   function user() { return userField.value.trim() || "alice"; }
   function session() { return sessionField.value.trim(); }
+
+  function parseUtc(value) {
+    var text = String(value);
+    // The API sends a naive UTC timestamp. Without this the browser reads it as local time and
+    // an expiry appears hours out - and a deadline shown wrongly is worse than one not shown,
+    // because a reader would trust it.
+    var zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(text);
+    return new Date(zoned ? text : text + "Z");
+  }
+
+  function asLocal(value) {
+    if (!value) return "";
+    var at = parseUtc(value);
+    return isNaN(at.getTime()) ? String(value) : at.toLocaleString();
+  }
+
+  function remaining(value) {
+    if (!value) return "";
+    var at = parseUtc(value);
+    if (isNaN(at.getTime())) return "";
+    var minutes = Math.round((at.getTime() - Date.now()) / 60000);
+    if (minutes <= 0) return "expired";
+    if (minutes < 60) return "in " + minutes + " min";
+    return "in " + Math.round(minutes / 60) + " h";
+  }
 
   async function json(url, options) {
     var response = await fetch(url, options);
@@ -201,7 +235,10 @@ INDEX_SCRIPT = """
     if (proposal.summary) card.appendChild(el("div", "hint", proposal.summary));
     card.appendChild(el("div", "payload", JSON.stringify(proposal.arguments || {}, null, 2)));
     if (proposal.expires_at) {
-      card.appendChild(el("div", "meta", "Expires " + proposal.expires_at));
+      card.appendChild(
+        el("div", "meta",
+           "Expires " + asLocal(proposal.expires_at) + " (" + remaining(proposal.expires_at) + ")")
+      );
     }
 
     var row = el("div", "row");

@@ -116,8 +116,8 @@ which is why the message described a ticket rather than a connection.
 `config.py` held two compounding errors:
 
 ```python
-ENV_BASE_URL = "TICKETING_API_URL"           # read by nothing
-DEFAULT_BASE_URL = "http://127.0.0.1:8080"   # the agent's port
+ENV_BASE_URL = "TICKETING_API_URL"  # read by nothing
+DEFAULT_BASE_URL = "http://127.0.0.1:8080"  # the agent's port
 ```
 
 The variable name was wrong — `.env`, `.env.example` and `devtasks serve` all set
