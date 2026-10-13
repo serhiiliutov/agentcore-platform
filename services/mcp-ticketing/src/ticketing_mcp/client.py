@@ -106,15 +106,18 @@ class TicketingClient:
     # --- One place where HTTP becomes exceptions ---------------------------
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        """Perform one request, translating failures.
+        """Perform one request, translating failures and retrying the retryable ones.
 
-        Retrying happens *around* this method rather than inside it, so the retry policy
-        applies to network failures identically for every verb.
+        The translation happens **inside** the retry attempt rather than after it, and that
+        placement is what makes the policy apply to a throttled request at all: a 429 is a
+        response, not an exception, so translating it after the loop has already returned would
+        let every throttle through as a success and leave the policy retrying nothing but
+        transport faults.
         """
 
         async def attempt() -> httpx.Response:
             try:
-                return await self._http.request(method, path, **kwargs)
+                response = await self._http.request(method, path, **kwargs)
             except httpx.TimeoutException as exc:
                 # Includes connect, read, write and pool timeouts. See the module
                 # docstring for why one class is the safe default.
@@ -124,15 +127,23 @@ class TicketingClient:
             except httpx.TransportError as exc:
                 raise TransportError(f"{method} {path} failed at the transport: {exc}") from exc
 
-        response = await call_with_retry(attempt, policy=self._config.retry)
+            # Translated *inside* the attempt, and that placement is the point. A 429 or a 500
+            # is an HTTP **response**, not an exception — so a retry loop that wrapped only the
+            # request would receive it as a success, return it, and let the caller translate it
+            # once the loop was already over. Every throttle would then read as an answer: the
+            # policy would be written, wired, unit-tested against `call_with_retry` directly,
+            # and never once applied to the failure it exists for. Retrying only happens if the
+            # failure is raised where the loop can see it.
+            if response.status_code >= 400:
+                raise error_from_response(
+                    response.status_code,
+                    _safe_json(response),
+                    request_id=response.headers.get("X-Request-Id"),
+                    retry_after=response.headers.get("Retry-After"),
+                )
+            return response
 
-        if response.status_code >= 400:
-            raise error_from_response(
-                response.status_code,
-                _safe_json(response),
-                request_id=response.headers.get("X-Request-Id"),
-                retry_after=response.headers.get("Retry-After"),
-            )
+        response = await call_with_retry(attempt, policy=self._config.retry)
         return _safe_json(response)
 
     # --- Reads -------------------------------------------------------------
