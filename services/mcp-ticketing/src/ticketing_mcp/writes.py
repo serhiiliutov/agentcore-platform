@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from .client import TicketingClient
 from .errors import RequestTimeoutError, TicketingError
@@ -51,8 +52,42 @@ from .models import (
     NewComment,
     NewTicket,
     SearchQuery,
+    SearchResult,
     Ticket,
 )
+
+
+@runtime_checkable
+class TicketingTransport(Protocol):
+    """The slice of the API that a guarded write actually needs.
+
+    A `Protocol` rather than the concrete `TicketingClient` so this module depends on
+    behaviour instead of an implementation. That is not tidiness: the timeout branch can
+    only be tested with a scripted client that accepts a request and then never answers,
+    and requiring a real `TicketingClient` would have forced a cast in the tests — which
+    hides a genuine mismatch rather than preventing it.
+
+    `runtime_checkable` so a test can assert that both the real client and the test double
+    satisfy it; `_assert_transport_conformance` below makes the same check statically.
+    """
+
+    async def create_ticket_raw(self, ticket: NewTicket) -> Ticket: ...
+
+    async def add_comment_raw(self, ticket_id: str, comment: NewComment) -> Comment: ...
+
+    async def search(self, query: SearchQuery) -> SearchResult: ...
+
+    async def get_ticket(self, ticket_id: str) -> Ticket: ...
+
+
+def _assert_transport_conformance(client: TicketingClient) -> TicketingTransport:
+    """Statically prove the real client satisfies the protocol.
+
+    Without this, renaming a method on `TicketingClient` would break production while
+    every test kept passing against the fake. The body is trivial on purpose: the check is
+    the return type, evaluated by the type checker rather than at runtime.
+    """
+    return client
 
 
 class IdempotencyConflictError(TicketingError):
@@ -123,7 +158,7 @@ class IdempotentWriter:
 
     def __init__(
         self,
-        client: TicketingClient,
+        client: TicketingTransport,
         ledger: IdempotencyLedger,
         *,
         scope: str = "tickets",
