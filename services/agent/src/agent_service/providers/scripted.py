@@ -241,11 +241,51 @@ def _query_from(text: str) -> str:
     A whole sentence would match nothing against the seed data, so the rule picks a term
     rather than passing the prompt through — an eval that always searches for a sentence would
     always see zero results and would never exercise the found-rows path.
+
+    The filler list matters more than it looks. Picking the first long word from "find tickets
+    about the printer" yields "about", which is a real search term only in the sense that the
+    API will accept it — it matches nothing and would make every scripted search look empty.
+    A test asserts the meaningful word comes back instead.
     """
     words = [word for word in re.split(r"\W+", text) if len(word) > 3]
-    for stopword in ("find", "search", "list", "tickets", "ticket", "show", "looking"):
-        words = [word for word in words if word != stopword]
-    return words[0] if words else ""
+    return next((word for word in words if word not in _SEARCH_FILLER), "")
+
+
+#: Words that carry the request but not the subject. Kept as a set rather than inline so the
+#: intent — "these are not what we are searching for" — is legible.
+_SEARCH_FILLER = frozenset(
+    {
+        "find",
+        "search",
+        "list",
+        "show",
+        "looking",
+        "look",
+        "tickets",
+        "ticket",
+        "about",
+        "with",
+        "from",
+        "that",
+        "this",
+        "there",
+        "where",
+        "when",
+        "what",
+        "which",
+        "have",
+        "has",
+        "need",
+        "want",
+        "please",
+        "help",
+        "give",
+        "some",
+        "any",
+        "all",
+        "into",
+    }
+)
 
 
 def _matches_get_ticket(messages: Sequence[Message]) -> bool:
