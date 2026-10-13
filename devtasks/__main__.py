@@ -52,6 +52,7 @@ COMMANDS: dict[str, tuple[TaskFn, str, str]] = {
     "mcp": (tasks.mcp, "run the MCP server locally over stdio (blocking)", "devtasks mcp"),
     # --- database ----------------------------------------------------------
     "migrate": (tasks.migrate, "alembic upgrade head", "devtasks migrate"),
+    "serve": (tasks.serve, "run the agent service (web page at /)", "devtasks serve"),
     "downgrade": (tasks.downgrade, "alembic downgrade (default: base)", "devtasks downgrade base"),
     "revision": (tasks.revision, "autogenerate a migration", 'devtasks revision "add approvals"'),
     # --- evals and housekeeping -------------------------------------------

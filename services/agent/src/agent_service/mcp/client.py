@@ -22,6 +22,7 @@ anywhere below that line.
 
 from __future__ import annotations
 
+import os
 import shlex
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -232,7 +233,13 @@ async def _inspect(settings: Settings, session: ClientSession) -> tuple[str, tup
     failure this whole method exists to report clearly.
     """
     info = await session.initialize()
-    reported = str(getattr(getattr(info, "serverInfo", None), "name", ""))
+    # ``serverInfo`` is the protocol's name for this and ``server_info`` is the SDK's pydantic
+    # model's, and which one is populated has already surprised this project once — ``_to_tool``
+    # below carries the same guard for ``inputSchema``. Reading both and taking whichever is
+    # present costs a line and removes a failure whose only symptom is an empty string, which is
+    # exactly what this produced: the expectation check could never pass, for any server.
+    server_info = getattr(info, "serverInfo", None) or getattr(info, "server_info", None)
+    reported = str(getattr(server_info, "name", "") or "")
     _require_expected_server(settings, reported)
 
     listed = await session.list_tools()
@@ -280,7 +287,22 @@ async def _open_session(settings: Settings) -> AsyncIterator[ClientSession]:
         argv = shlex.split(settings.mcp_stdio_command)
         if not argv:
             raise McpConnectionError("MCP_STDIO_COMMAND is empty; nothing to launch")
-        params = StdioServerParameters(command=argv[0], args=argv[1:])
+        # The child is given this process's environment in full.
+        #
+        # This is not incidental. ``mcp`` defaults a spawned server to a curated whitelist of
+        # variables — HOME, PATH, SYSTEMROOT and so on — which is the right default for a
+        # third-party server, and wrong for this one: the MCP server authenticates to the mock
+        # with ``TICKETING_API_KEY`` and finds it via ``TICKETING_BASE_URL``, so under the
+        # default it exits with "TICKETING_API_KEY is not set" before the handshake completes,
+        # and the agent reports only "Connection closed".
+        #
+        # Forwarding everything rather than enumerating the variables the server needs is
+        # deliberate: an allow-list here would have to be kept in step with the server's own
+        # configuration, and the failure when it drifted would be this same opaque one. The
+        # server is this repository's code, started by this repository's process — the trust
+        # boundary the whitelist exists to enforce is not crossed by passing it the environment
+        # its parent already holds.
+        params = StdioServerParameters(command=argv[0], args=argv[1:], env=dict(os.environ))
         async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
             yield session
     else:

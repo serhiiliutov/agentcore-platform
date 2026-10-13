@@ -169,6 +169,52 @@ def mcp(extra: Sequence[str] = ()) -> int:
     return run([sys.executable, "-m", "ticketing_mcp", *extra])
 
 
+#: Values a run against the *locally* started mock needs, which ``.env`` cannot supply.
+#:
+#: ``.env`` is written for the compose stack: it points the MCP server at
+#: ``http://ticketing:8000``, a hostname that resolves only inside the compose network, and it
+#: selects the ``http`` MCP transport because compose runs the server as a container. On the host
+#: the mock is on the loopback interface and the MCP server is a child process, so a run that
+#: inherited the compose values could not reach anything — which is exactly how this was found:
+#: the agent started, the MCP child exited immediately, and the service refused to start.
+LOCAL_SERVE_ENV: dict[str, str] = {
+    "MCP_TRANSPORT": "stdio",
+    "TICKETING_BASE_URL": "http://127.0.0.1:8000",
+    "TICKETING_API_KEY": "dev-key-123",
+}
+
+
+def _local_env() -> dict[str, str]:
+    """The environment for a host run: everything set, plus local defaults where unset.
+
+    ``setdefault`` rather than assignment, so a variable the developer exported explicitly still
+    wins. A run that silently ignored an env var would be worse than one that failed, because it
+    would look like it had honoured the setting.
+    """
+    environment = dict(os.environ)
+    for key, value in LOCAL_SERVE_ENV.items():
+        environment.setdefault(key, value)
+    return environment
+
+
+def serve(extra: Sequence[str] = ()) -> int:
+    """Run the agent service against the locally started mock. Blocking; the page is at ``/``.
+
+    Run with ``cwd=AGENT_DIR`` for exactly the reason ``migrate`` is: the default
+    ``DATABASE_URL`` is a relative SQLite path, so the database Alembic created is the one the
+    service opens only if both resolve it against the same directory.
+
+    Starting the service from the repository root would instead open
+    ``<repo>/data/agent.sqlite3`` — a second, empty file — and the failure would present as a
+    missing table on the first request rather than as a path mistake, which is the kind of
+    diagnosis that costs an afternoon. Pinning the working directory here means the two cannot
+    disagree, instead of relying on a README paragraph to keep them in step.
+
+    The local overrides are applied for the same class of reason — see ``LOCAL_SERVE_ENV``.
+    """
+    return run([sys.executable, "-m", "agent_service", *extra], cwd=AGENT_DIR, env=_local_env())
+
+
 # ---------------------------------------------------------------------------
 # Runtime: database
 # ---------------------------------------------------------------------------
@@ -301,7 +347,10 @@ def _print_mock_status() -> None:
     endpoints: list[tuple[str, str, dict[str, str]]] = [
         ("ticketing mock", "http://127.0.0.1:8000/health", {}),
         ("agent /ping", "http://127.0.0.1:8080/ping", {}),
-        ("web ui", "http://127.0.0.1:3000/", {}),
+        # The page is served by the agent itself (Stage 11), so it is the agent's port. Probed
+        # as well as /ping because a page that fails while health answers is a different fault,
+        # and the one a reviewer would hit first.
+        ("agent web page", "http://127.0.0.1:8080/", {}),
     ]
     for label, url, headers in endpoints:
         try:
