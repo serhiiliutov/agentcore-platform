@@ -24,13 +24,25 @@ from .errors import ConfigurationError
 
 #: Environment variables the server reads. Named rather than inline so a test and a
 #: deployment cannot disagree about the spelling.
-ENV_BASE_URL = "TICKETING_API_URL"
+#:
+#: ``TICKETING_BASE_URL``, not ``TICKETING_API_URL``. Both spellings existed: this constant said
+#: the latter while ``.env``, ``.env.example`` and ``devtasks serve`` all set the former. The
+#: setting was therefore read by nothing and silently ignored in *every* mode — the server fell
+#: through to the default below and posted to the wrong port, which is how this was found: a
+#: ``create_ticket`` from a running agent failed with a 404 whose URL was
+#: ``POST http://127.0.0.1:8080/tickets``, the agent's own port rather than the mock's.
+ENV_BASE_URL = "TICKETING_BASE_URL"
 ENV_API_KEY = "TICKETING_API_KEY"
 ENV_LEDGER_PATH = "TICKETING_LEDGER_PATH"
 ENV_TIMEOUT_S = "TICKETING_TIMEOUT_S"
 
 #: Defaults that work against the Stage 1 mock on localhost.
-DEFAULT_BASE_URL = "http://127.0.0.1:8080"
+#:
+#: 8000, which is where the mock listens — ``devtasks mock`` binds it, and ``.env`` names it as
+#: ``ticketing:8000`` inside compose. It was 8080, which is the *agent* service's port, so the
+#: server posted ticket writes to the agent and the agent answered 404. Every write failed; the
+#: failure looked like a missing ticket because a 404 on this path is reported as one.
+DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_LEDGER_PATH = "data/ticketing-idempotency.sqlite3"
 DEFAULT_TIMEOUT_S = 10.0
 

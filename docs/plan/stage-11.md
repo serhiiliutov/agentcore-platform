@@ -1,6 +1,6 @@
 # Stage 11 — the front end, the composition root, and running it for real
 
-**Status: code complete and running; four defects found, three fixed and verified, one open.**
+**Status: complete. Five defects found by running it; all fixed and verified end to end.**
 
 ## Why this stage was where everything broke
 
@@ -12,7 +12,7 @@ for. Every unit test constructed the part it was testing directly, so nothing ev
 *assembly*: which environment the MCP child receives, which attribute the SDK populates, which
 directory the database path resolves against, or whether two proposals can share a key.
 
-The four defects below were all found by running the assembled service and hitting it. None of
+The five defects below were all found by running the assembled service and hitting it. None of
 them was reachable from a test that built its dependencies by hand, and each one is worth more
 than the code it took to fix.
 
@@ -26,7 +26,7 @@ than the code it took to fix.
 | The entrypoint | `__main__.py` | Logging, a refusal to start when the chosen provider has no credentials, and `uvicorn.run` with the assembled app. |
 | The run task | `devtasks/tasks.py` `serve` | Runs the service from `services/agent`, with the local MCP environment filled in. |
 
-## The four defects
+## The five defects
 
 ### 1. The MCP child never received its configuration — `4d740c7`
 
@@ -93,26 +93,42 @@ exists and is not re-proposed.
 
 Verified live: two consecutive proposals now both return `awaiting_approval`.
 
-### Open: the create path does not create
+### 5. The MCP server was pointed at the agent, not the mock
 
-`create_ticket` returns `No ticket with that id exists. Check the id before retrying.` and the
-mock's ticket count does not move.
+The write failed with `No ticket with that id exists`, and the mock's ticket count never moved.
 
-Localised, and not in the agent:
+Two misdirections are worth recording, because each cost real time. First, `POST /tickets`
+directly against the mock succeeded, which correctly cleared the mock. Second, the error text is
+the one `_describe` produces for a `NotFoundError`, and the verify leg of `_guarded` **searches**
+— so the evidence appeared to point at a stale `IN_PROGRESS` claim in the idempotency ledger.
+That reading was plausible, and wrong.
 
-- `POST /tickets` directly against the mock succeeds — `TCK-1025`, count 24 → 25. The mock is
-  healthy, and `flaky:false` confirms fault injection is off.
-- The agent sends the row's key, which is now freshly minted per proposal, so this is not the
-  key collision from defect 4.
-- The message is a `get_ticket` message, which is the **verify** leg of
-  `IdempotentWriter._guarded`, not the `perform` leg. So `_guarded` is taking the
-  `ClaimState.IN_PROGRESS` branch — `_resolve_in_progress(key, model, verify)` — meaning the
-  ledger holds a stale in-progress claim for that key, and the verification read cannot find a
-  ticket that was never created.
+Calling `create_ticket` on the MCP server with no agent involved settled it in one line:
 
-Next: read `_resolve_in_progress` and how `IdempotencyLedger.reserve` decides `IN_PROGRESS`
-versus `CLAIMED`, and check whether the ledger persists across runs while the mock it is
-reconciled against has been reset — a poisoned claim would then be permanent for that key.
+```
+HTTP Request: POST http://127.0.0.1:8080/tickets "HTTP/1.1 404 Not Found"
+```
+
+**8080 is the agent.** The server was posting ticket writes to the agent's own HTTP port, which
+answers 404 for an unknown path — and a 404 on that route is reported as a missing *ticket*,
+which is why the message described a ticket rather than a connection.
+
+`config.py` held two compounding errors:
+
+```python
+ENV_BASE_URL = "TICKETING_API_URL"           # read by nothing
+DEFAULT_BASE_URL = "http://127.0.0.1:8080"   # the agent's port
+```
+
+The variable name was wrong — `.env`, `.env.example` and `devtasks serve` all set
+`TICKETING_BASE_URL` — so the setting was **silently ignored in every mode**, and compose was
+broken identically: the MCP container would post to `127.0.0.1:8080` inside itself. The default
+was then the agent's port rather than the mock's. Fixed by reading `TICKETING_BASE_URL` and
+defaulting to `8000`.
+
+This defect has the widest blast radius of the five and is the least like a coding error. It is
+two names for one thing, and the running service is the only place the two are ever compared —
+which is exactly why no gate could see it.
 
 ## Decisions
 
@@ -151,7 +167,6 @@ this stage's two regression tests).
 
 ## Carried forward
 
-- The create-path defect above.
 - `factory.py` and `ui_routes.py` have no unit tests; they were verified by running the service,
   which is stronger evidence but not a regression test.
 - The page has not been driven in a real browser yet; it has only been fetched and checked for
