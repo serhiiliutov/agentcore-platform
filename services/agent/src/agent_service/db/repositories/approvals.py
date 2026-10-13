@@ -114,6 +114,34 @@ class ApprovalRepository:
             select(Approval).where(Approval.id == approval_id, Approval.user_id == user_id)
         ).scalar_one_or_none()
 
+    def pending_for_user(self, *, user_id: str) -> tuple[Approval, ...]:
+        """Every still-decidable proposal for this user, oldest first.
+
+        The user-scoped counterpart of ``pending`` below, and it exists because of the durability
+        requirement rather than for symmetry. A proposal must survive a restart of the service.
+        ``pending`` is keyed by session, so a page that knows only the user cannot ask which
+        session an outstanding proposal belongs to — and a proposal nobody can find is one nobody
+        can approve. The guarantee would hold in the database and be invisible in the one place a
+        human looks for it.
+
+        Ordered oldest first, like ``pending``: the proposal that has been waiting longest is the
+        one most likely to expire before anyone acts on it.
+
+        Expired-but-unswept rows are filtered out here for the same reason they are there — a
+        caller must never be handed something it cannot decide.
+        """
+        moment = _naive(utc_now())
+        rows = self._session.execute(
+            select(Approval)
+            .where(
+                Approval.user_id == user_id,
+                Approval.state == ApprovalState.PENDING.value,
+            )
+            .order_by(Approval.requested_at)
+        ).scalars()
+
+        return tuple(row for row in rows if _naive(row.expires_at) > moment)
+
     def pending(self, *, session_id: str, user_id: str) -> tuple[Approval, ...]:
         """Every still-decidable proposal for this session, oldest first.
 

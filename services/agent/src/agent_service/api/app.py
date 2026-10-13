@@ -1,8 +1,13 @@
 """The FastAPI application: the AgentCore Runtime contract and its wiring.
 
 Two routes are the contract. ``GET /ping`` answers health, and ``POST /invocations`` runs one
-turn. Everything the web UI needs lives under ``/api`` in a separate router, so a change to a
-local convenience endpoint cannot alter the contract's shape.
+turn. Everything the web UI needs lives in a separate router — the page at ``/`` and the one
+listing under ``/api`` — so a change to a local convenience endpoint cannot alter the contract's
+shape.
+
+The page is served from this same app rather than from a second service. It is a client of
+``/invocations`` and the decision route exactly as any other client is, so a separate process
+would add a container, a port and a CORS decision in exchange for nothing.
 
 **The loop is injected, not imported.** ``create_app`` takes an ``InvocationHandler`` and the
 default one reports that the loop is not installed. That is deliberate rather than a
@@ -25,6 +30,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from starlette.types import Lifespan
 
 from agent_service.config import Settings, get_settings
 
@@ -34,6 +40,7 @@ from .models import (
     InvocationRequest,
     InvocationResponse,
 )
+from .ui_routes import PendingApprovalListing, create_ui_router
 
 #: The header the AgentCore Runtime uses to identify a conversation.
 SESSION_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
@@ -85,12 +92,15 @@ def create_app(
     *,
     invocation_handler: InvocationHandler | None = None,
     decision_handler: DecisionHandler | None = None,
+    pending_approvals: PendingApprovalListing | None = None,
+    lifespan: Lifespan[Any] | None = None,
 ) -> FastAPI:
     """Build the application.
 
-    ``settings``, ``invocation_handler`` and ``decision_handler`` are injectable so a test can
-    drive the contract without a database, an MCP server or a model provider, and so the loop
-    and the gate can be installed without this module importing either.
+    Every collaborator is injectable so a test can drive the contract without a database, an MCP
+    server or a model provider, and so the loop, the gate and the MCP connection can be installed
+    without this module importing any of them. ``lifespan`` is passed straight through to
+    FastAPI for the same reason.
 
     The decision router is included unconditionally: with no handler it answers 501 per the
     default in `create_approval_router`, which keeps the route's existence visible in the
@@ -100,6 +110,7 @@ def create_app(
     handler = invocation_handler or _unconfigured_handler
     inflight = _InflightCounter()
     decisions = create_approval_router(decision_handler)
+    ui = create_ui_router(pending_approvals)
 
     app = FastAPI(
         title="agent-service",
@@ -108,12 +119,18 @@ def create_app(
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        # Supplied by the composition root. It exists so a connection that has to be opened once
+        # for the process — the MCP session — has a lifetime that is neither "per request" nor
+        # "at import". ``None`` keeps the app constructible with no lifespan at all, which is what
+        # the contract tests rely on.
+        lifespan=lifespan,
     )
 
     app.state.settings = resolved
     app.state.inflight = inflight
 
     app.include_router(decisions)
+    app.include_router(ui)
 
     @app.get("/ping", response_model=HealthResponse)
     async def ping() -> HealthResponse:

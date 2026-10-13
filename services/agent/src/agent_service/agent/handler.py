@@ -136,7 +136,7 @@ def to_invocation_response(
     return InvocationResponse(
         output=result.text,
         tool_calls=[_record(record) for record in result.tool_calls],
-        pending_approval=_pending(approval) if approval is not None else None,
+        pending_approval=as_pending_approval(approval) if approval is not None else None,
         session_id=session_id,
         stop_reason=STOP_REASON_MAP.get(str(result.stop_reason), UNMAPPED_STOP_REASON),
         steps=result.steps,
@@ -158,11 +158,16 @@ def _record(record: LoopCallRecord) -> ToolCallRecord:
     )
 
 
-def _pending(approval: Approval) -> PendingApproval:
+def as_pending_approval(approval: Approval) -> PendingApproval:
     """One approval row as the contract's proposal.
 
     Carries ``expires_at`` because the decision is time-limited and a client that does not know
     when would show an approval button that fails when pressed.
+
+    Public because two callers need it: the invocation response, and the web page's listing of
+    what is still waiting. They must produce the same shape and the same sentence — a proposal
+    that reads differently depending on which endpoint delivered it is a proposal a user has to
+    re-read to decide, and the two would drift the first time either changed.
     """
     return PendingApproval(
         approval_id=approval.id,
