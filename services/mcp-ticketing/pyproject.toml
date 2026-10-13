@@ -1,0 +1,46 @@
+# ============================================================================
+# ticketing-mcp — the MCP server the agent talks to (port 8081)
+#
+# This is the ONLY route from the agent to the mock ticketing system. It owns:
+#   * the tool surface the model sees (search / read / two writes),
+#   * the error taxonomy that turns HTTP failures into instructions a model
+#     can act on,
+#   * the retry policy and the idempotency ledger that make a write safe to
+#     retry,
+#   * authentication outwards (X-API-Key to the mock) and inwards
+#     (X-MCP-Token from the agent).
+#
+# Persistence note: this service deliberately uses the standard library's
+# `sqlite3` module, not SQLAlchemy + Alembic. Its only table is a two-column
+# idempotency ledger (client_request_id → result JSON) whose shape has been
+# stable since design; the agent service, which has seven evolving relations,
+# is where a migration tool earns its keep. Recorded in ADR-0003.
+# ============================================================================
+
+[project]
+name = "ticketing-mcp"
+version = "0.1.0"
+description = "MCP server exposing search/read/write tools over the mock IT ticketing API, with retries, an idempotency ledger and model-actionable errors."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Serhii Liutov" }]
+dependencies = [
+  # --- MCP server framework (FastMCP) -------------------------------------
+  "mcp>=1.9",
+  # --- HTTP client for the mock -------------------------------------------
+  "httpx>=0.28",
+  # --- Configuration, validation and tool schemas -------------------------
+  "pydantic>=2.10",
+  "pydantic-settings>=2.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ticketing_mcp"]
+
+[tool.uv]
+package = true

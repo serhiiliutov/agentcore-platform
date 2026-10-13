@@ -1,0 +1,54 @@
+# ============================================================================
+# agent-service — the AgentCore Runtime workload (port 8080)
+#
+# Exposes exactly two contracts:
+#   POST /invocations   the agent entrypoint (JSON in, JSON out)
+#   GET  /ping          health  → {"status": "Healthy" | "HealthyBusy"}
+#
+# Everything else it serves (/api/providers, /api/memory, /api/traces) is a
+# local convenience for the web UI, kept under /api so the AgentCore surface
+# stays clean. See ../../CONTRACT.md.
+#
+# Dependencies are declared in full up front, on purpose: resolving and locking
+# the complete set once proves the model SDKs, the MCP SDK, SQLAlchemy and
+# FastAPI are mutually compatible before any code depends on them.
+# ============================================================================
+
+[project]
+name = "agent-service"
+version = "0.1.0"
+description = "IT helpdesk agent service: AgentCore Runtime contract, swappable model providers, durable approval gating, per-user memory and request tracing."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Serhii Liutov" }]
+dependencies = [
+  # --- Web layer: the AgentCore Runtime contract ---------------------------
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  # --- Configuration and validation ---------------------------------------
+  "pydantic>=2.10",
+  "pydantic-settings>=2.6",
+  # --- HTTP client (MCP transport, provider SDK transport) ----------------
+  "httpx>=0.28",
+  # --- Persistence: sessions, approvals, memory, idempotency, traces ------
+  "sqlalchemy>=2.0.36",
+  "alembic>=1.14",
+  # --- MCP client: the agent only ever reaches the mock through this ------
+  "mcp>=1.9",
+  # --- Swappable model providers ------------------------------------------
+  "anthropic>=0.52",
+  "openai>=1.84",
+  "boto3>=1.38",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_service"]
+
+[tool.uv]
+# Installed editable in the dev environment, but built normally in images.
+package = true
