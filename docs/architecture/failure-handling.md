@@ -41,6 +41,75 @@ The clock is injected rather than read directly, so a test can exhaust a budget 
 of sleeping through it. A deadline test that sleeps is the slowest test in a suite and the first
 one to be marked skip.
 
+### The budget has to bound each call, or it does not bound the turn
+
+Checking the clock only *between* steps looks like a deadline and is not one. A tool that never
+returns would hold the turn open forever, because the next checkpoint is never reached to notice
+the budget was gone. The check would be correct at every moment it ran, and would never run.
+
+So the loop grants each call the smaller of what the turn has left and the step's own ceiling, and
+passes that down to the MCP client. Two details are load-bearing:
+
+**The grant is computed before the call, not inside it.** A step that starts with nothing left is
+refused rather than started and then abandoned, so the turn never begins work it has already
+decided it cannot wait for.
+
+**A step already in flight is still never torn down.** The grant bounds *how long* a call may take,
+not whether it is interrupted — exactly the rule cancellation follows, for exactly the same reason.
+A call that was granted a slice, started, and overran is allowed to finish and is recorded. The next
+checkpoint is what stops the turn.
+
+`McpToolExecutor.call` takes the smaller of the granted slice and its own configured ceiling, and
+tests for `is None` rather than truthiness: `0.0` is a legitimate slice for a turn with nothing
+left, and a truthiness check would silently replace it with the larger default — turning the one
+case where the turn should stop into the case where it runs for the full timeout.
+
+## An exhausted retry budget says how hard the client tried
+
+The retry policy re-raises the last failure when it runs out of attempts. On its own that is a bug
+in the message rather than the mechanism: the failure arrives carrying the sentence a *single*
+attempt would have produced, and for a rate limit that sentence is "the ticketing API is rate
+limiting this client. Waiting is required before retrying."
+
+That is a true statement about the backend and a false one about the situation. The client has
+already waited, backed off, and tried four times — telling a model to wait and retry is telling it
+to do the one thing that has just been established not to work, and it invites a user to retry by
+hand at the moment the system has decided retrying is pointless.
+
+`TicketingError` carries `attempts`, set by `call_with_retry` on the way out, and exposes
+`user_message`: the sentence a person should read, which knows how many attempts were made.
+`_describe` checks it *before* any per-kind sentence, because an exhausted budget changes what the
+right advice is rather than merely adding detail to it.
+
+The two messages stay separate because they answer different questions. `message` describes what
+the backend did — what a log wants, and what `str(error)` keeps. `user_message` answers "is trying
+again worthwhile" — what a reader needs, and what a log has no use for. Collapsing them would make
+one of the two audiences read the wrong thing.
+
+### A retry only happens if the failure is raised where the loop can see it
+
+The policy was correct and the retry never ran. `call_with_retry` wrapped the HTTP *request*, and
+the status code was translated into an exception *after* the loop had returned. A 429 is a response,
+not an exception, so `attempt()` returned it as a success, the loop counted a success, and the
+translation happened once the loop was over. Nothing retried, ever.
+
+Everything downstream of that was fine and pointless: the taxonomy classified 429 as retryable
+correctly, `Retry-After` was parsed correctly, the backoff arithmetic was correct, and a unit test
+of `call_with_retry` passed. The defect was in the *composition*, one layer above all of it.
+
+So the translation sits inside the attempt. Two consequences that are easy to get wrong in the other
+direction:
+
+**A terminal failure still fails immediately.** `call_with_retry` checks `is_retryable` and
+re-raises anything it cannot retry without consuming an attempt, so a 404 costs one request, not
+four. Moving the translation inward does not make everything retryable; it makes the decision
+reachable.
+
+**The retry loop must not see a success it should not.** Returning the response from `attempt` and
+inspecting it afterwards is the natural shape, and it is exactly the shape that silently disables
+the policy. Any guard that inspects a *result* rather than raising an *error* has this hazard, and
+the shape reads as correct right up until something counts the attempts.
+
 ## Cancellation is cooperative, and never interrupts a write
 
 `CancelToken` is a one-way flag somebody else sets. It is not a signal that tears down a
@@ -120,3 +189,19 @@ turn it stopped records its own outcome, which is the durable fact.
 - `tests/unit/test_cancel_route.py` — the endpoint, driven through the assembled app, because a
   route nothing can reach passes its own tests while being absent from the running system.
 - `tests/unit/test_approval_gate.py` — that a *reported* failure is not recorded as executed.
+- `tests/unit/test_error_taxonomy.py` — that an exhausted retry budget records its attempt count
+  and reports it, that a single attempt says only what happened, and that a successful retry comes
+  back clean rather than carrying a failure's history.
+- `tests/contract/test_chaos.py` — that the mock's injected failures are *identifiable*: a flaky
+  read never succeeds, and a failure says which kind it is. This is the layer the taxonomy above
+  is derived from rather than a restatement of it — the mapping in `errors.py` is a reading of
+  these responses, so a change here is a change to what the taxonomy should say.
+- `tests/integration/test_failure_paths.py` — the same claims from *outside*, over a real socket,
+  with a real server and a real ledger: that a failure storm writes nothing, that the budget is
+  finite and reports how hard it tried, and that the same request key reused after the API recovers
+  yields exactly one ticket.
+
+This list is the reason that last file exists. Every test above it passed while the retry policy
+described in this document was dead code, because each one tests a *part* and the defect was in how
+the parts were joined. A unit test cannot see the seam between a retry loop and the translation that
+feeds it; only a real request can.

@@ -1,6 +1,6 @@
 # Stage 12 — failure hardening, deadlines, and cancellation
 
-**Status: in progress. Scope and decisions recorded; implementation follows.**
+**Status: complete. Six defects found by running it; all fixed and verified end to end.**
 
 This is the assignment's optional extra. It is worth doing because it is the stage where the
 *unhappy* paths are made first-class rather than left to whatever the happy path happens to do
@@ -78,3 +78,71 @@ browser.
 This matters here because the plan's Stage 12 deliverables mention wiring a Cancel button, which
 assumes the nginx layout. The button belongs in `ui/page.py` alongside the approve/decline
 controls, talking to `POST /invocations/{request_id}/cancel` on the agent directly.
+
+## What was built
+
+| Piece | Where | What it is |
+| --- | --- | --- |
+| Deadline and cancel token | `agent/budget.py` | One turn budget, one cooperative flag; no I/O, injected clock |
+| Checkpoints | `agent/loop.py` | Both checks, between steps and never inside one |
+| Stop-reason translation | `agent/handler.py` | The loop's vocabulary mapped to the contract's |
+| Run registry | `agent/inflight.py` | Run id → token, in memory, scoped by user |
+| Cancel endpoint | `api/cancel_routes.py` | `POST /invocations/{session_id}/cancel` |
+| Cancel button | `ui/page.py` | Disabled once pressed; reports `stopping`, not `stopped` |
+| Failure design | `docs/architecture/failure-handling.md` | Why each mechanism is shaped as it is |
+
+## The six defects
+
+Each was found by exercising the running system, not by reading it. The order is the order they
+appeared, and the sixth is the one worth reading.
+
+1. `steps` was counted before the checkpoint, so a turn cancelled on arrival reported `steps=1`
+   having made no provider call — a number someone would later use to explain a slow turn.
+2. The loop's `"timed_out"` fell through the stop-reason map to `"error"`, so a turn that gave up
+   reached the wire claiming to have failed.
+3. `timed_out` and `cancelled` would have been translated to two names for one state had the map
+   not been keyed to exactly the reasons the loop emits.
+4. A deadline checked only *between* steps is not a deadline: a tool that never returns holds the
+   turn open forever, because the next checkpoint is never reached. Fixed by granting each call
+   `min(remaining, step ceiling)` and passing it to the MCP client.
+5. An exhausted retry budget re-raised the last failure carrying the sentence a *single* attempt
+   would have produced — "the API is rate limiting this client, wait and retry" — after the client
+   had already waited and retried four times.
+6. **The retry policy was dead code.** `call_with_retry` wrapped the HTTP *request*; the
+   status-code translation happened *after* the loop had returned. A 429 is a response, not an
+   exception, so the loop received every throttle as a success and exited on the first one. The
+   taxonomy, `is_retryable`, and the `Retry-After` handling were all written, wired, unit-tested
+   against `call_with_retry` directly, and never once applied to the failure they exist for.
+
+Defect 6 is the one this stage's structure earned. It is invisible to a unit test of the retry
+policy, because the policy was correct — what was wrong was *where it was applied*. It is invisible
+to a contract test of the mock, because the mock was correct too. It needs a real client, over a
+real socket, against a mock that actually fails.
+
+## Why `tests/integration/` exists now
+
+The Stage 12 definition of done names `make test-integration -k failure` as its verification
+command. Running it before writing anything showed it selecting **zero tests**: nothing in the
+repository carried the `integration` marker, so the command passed, printed nothing, and verified
+nothing — a definition of done that had never once been executed.
+
+The suite it now selects starts the starter kit's mock under `uvicorn` on a free port and drives the
+real `TicketingClient`, its real `RetryPolicy`, and a real `IdempotencyLedger` against it over HTTP.
+Four tests, one per claim: a failure storm writes nothing; the budget is finite and reports how hard
+it tried; a storm does not retry forever; and the same `client_request_id` reused after the API
+recovers produces exactly one ticket. It was defect 6 that the third and fourth of those caught.
+
+## Verification
+
+- `make test` — 340 passed (336 unit and contract, 4 integration).
+- `devtasks lint`, `devtasks fmt`, `devtasks typecheck` — clean, 92 source files.
+- `make test-integration -k failure` — 4 selected, 4 passed; previously 0 selected.
+- Browser: the page loads with no console output, a proposal renders its arguments and a local
+  expiry, approving executes the write, and the run reports `Created ticket TCK-1028`.
+
+## Carried forward
+
+The integration suite covers the failure paths from the outside. It does not yet cover cancellation
+end to end — the route is exercised in-process through the assembled app, and a browser walkthrough
+of a genuinely in-flight cancel (rather than a one-millisecond turn) would need a deliberately slow
+provider. That is the honest gap in this stage, and it is recorded rather than glossed.
