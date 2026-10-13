@@ -27,6 +27,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from agent_service.agent.budget import Deadline
+from agent_service.agent.inflight import InflightRegistry
 from agent_service.api.models import (
     InvocationRequest,
     InvocationResponse,
@@ -47,6 +49,11 @@ from .loop import AgentLoop, LoopLimits, ToolCallRecord as LoopCallRecord, ToolE
 #: Where traces go when the factory is not told otherwise. Relative rather than absolute so a
 #: container can mount it, and overridable so a test never writes to the real directory.
 DEFAULT_TRACE_DIR = Path("traces")
+
+#: How long one turn may take. Generous, because it exists to bound a stuck turn rather than to
+#: hurry a working one: a model making three tool calls legitimately takes tens of seconds, and a
+#: budget tight enough to interrupt that would turn normal behaviour into a timeout.
+DEFAULT_TURN_BUDGET_S = 90.0
 
 #: How the loop's stop reasons map onto the contract's. A table rather than a chain of ifs so
 #: an unmapped reason is visible as a missing key rather than as a silent fall-through — and
@@ -205,6 +212,8 @@ class InvocationHandlerFactory:
         system_prompt: str = SYSTEM_PROMPT,
         trace_dir: Path | None = None,
         trace_warnings: Callable[[BaseException], None] | None = None,
+        runs: InflightRegistry | None = None,
+        turn_budget_s: float = DEFAULT_TURN_BUDGET_S,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -215,6 +224,14 @@ class InvocationHandlerFactory:
         #: Told when a trace could not be written. Passed in rather than only logged, so a caller
         #: can count or alert on it; the tracer logs regardless.
         self._trace_warnings = trace_warnings
+        #: Where this turn registers itself so a cancel can find it. Optional, because a test that
+        #: drives one turn does not need a registry — but production always supplies one, or the
+        #: cancel endpoint could only ever answer "nothing was running".
+        self._runs = runs
+        #: How long one turn may take in wall-clock time. A budget per turn rather than a timeout
+        #: per call, so an operator can answer "why did that take forty seconds" — see
+        #: `agent/budget.py`.
+        self._turn_budget_s = turn_budget_s
 
     async def __call__(
         self,
@@ -247,6 +264,17 @@ class InvocationHandlerFactory:
         sessions.ensure(session_id, user_id=request.user_id)
         history = sessions.history(session_id, user_id=request.user_id)
 
+        # Registered before the loop runs, so a cancel arriving at any point during the turn finds
+        # a token to set. Registering after would leave a window in which the endpoint answers
+        # "nothing was running" for a turn that is very much running.
+        #
+        # Bound to a local first: the `finally` below cannot narrow an attribute, and a registry
+        # that could be swapped mid-turn is not a thing this is prepared to reason about.
+        runs = self._runs
+        run = (
+            runs.start(session_id=session_id, user_id=request.user_id) if runs is not None else None
+        )
+
         loop = AgentLoop(
             provider=self._provider,
             tools=self._tools,
@@ -256,6 +284,8 @@ class InvocationHandlerFactory:
             user_id=request.user_id,
             limits=self._limits,
             system_prompt=self._system_prompt,
+            deadline=Deadline(budget_s=self._turn_budget_s),
+            cancel=run.token if run is not None else None,
         )
 
         tracer = Tracer(
@@ -266,8 +296,15 @@ class InvocationHandlerFactory:
             on_write_failure=self._trace_warnings,
         )
 
-        with tracer.span(MODEL_TURN, "invocation", prompt_chars=len(request.prompt)):
-            result = await loop.run(request.prompt, history=history)
+        try:
+            with tracer.span(MODEL_TURN, "invocation", prompt_chars=len(request.prompt)):
+                result = await loop.run(request.prompt, history=history)
+        finally:
+            # In a `finally` rather than after the call: a turn that raised must not stay
+            # registered, or the registry would fill with runs that are over and a cancel for one
+            # of their sessions would set a token nobody is reading.
+            if runs is not None and run is not None:
+                runs.finish(run.run_id)
 
         sessions.append_all(
             session_id,
