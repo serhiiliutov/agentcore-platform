@@ -174,9 +174,7 @@ def test_a_timeout_is_not_retryable_even_when_it_carries_a_status() -> None:
 
 
 def test_retry_after_seconds_are_parsed() -> None:
-    error = error_from_response(
-        429, {"error": "rate_limited"}, retry_after="1"
-    )
+    error = error_from_response(429, {"error": "rate_limited"}, retry_after="1")
 
     assert isinstance(error, RateLimitedError)
     assert error.retry_after_s == 1.0
@@ -203,9 +201,7 @@ def test_an_unusable_retry_after_is_ignored(value: str) -> None:
 
 
 def test_the_request_id_is_carried_through_for_correlation() -> None:
-    error = error_from_response(
-        500, {"error": "internal_error"}, request_id="req-abc-123"
-    )
+    error = error_from_response(500, {"error": "internal_error"}, request_id="req-abc-123")
 
     assert error.request_id == "req-abc-123"
     assert "req-abc-123" in str(error)
