@@ -28,7 +28,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from .errors import RateLimitedError, RequestTimeoutError, is_retryable
+from .errors import RateLimitedError, RequestTimeoutError, TicketingError, is_retryable
 
 #: The default sleeps between attempts. Overridden in tests to keep them fast.
 SleepFn = Callable[[float], Awaitable[None]]
@@ -123,4 +123,11 @@ async def call_with_retry[T](
 
     # The loop can only exit here after exhausting attempts, so last_error is set.
     assert last_error is not None, "retry loop exited without recording a failure"
+    # The attempt count is recorded on the way out so the failure can describe how hard the
+    # client already tried. Without it the re-raised error carries the message a single
+    # attempt would have produced - "the API is rate limiting this client" - which reads like
+    # something that just happened, and invites the reader to retry by hand at exactly the
+    # moment the client has decided retrying is not working.
+    if isinstance(last_error, TicketingError):
+        last_error.attempts = resolved.max_attempts
     raise last_error

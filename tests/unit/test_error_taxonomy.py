@@ -31,6 +31,7 @@ from ticketing_mcp.errors import (
     is_retryable,
     is_terminal,
 )
+from ticketing_mcp.retry import RetryPolicy, call_with_retry
 
 # --- The mock's own middleware shape: {"error": ..., "detail": ...} ---------
 
@@ -228,3 +229,75 @@ def test_as_dict_never_contains_the_request_body() -> None:
         "request_id",
         "retryable",
     }
+
+
+# --- how hard the client tried, and whether that reaches the reader ------------
+
+
+def test_a_single_attempt_reports_only_what_happened() -> None:
+    """The common case, and the sentence a log wants.
+
+    A failure raised outside a retry loop genuinely was attempted once, and saying more than
+    that would be inventing detail the caller does not have.
+    """
+    error = RateLimitedError("the ticketing API is rate limiting this client")
+
+    assert error.attempts == 1
+    assert error.user_message == error.message
+
+
+def test_an_exhausted_retry_budget_says_so() -> None:
+    """The requirement this closes: a user must be able to tell one failure from four.
+
+    "The ticketing API is rate limiting this client" reads like something that just happened,
+    so a reader shown only that would reasonably retry by hand — which is the last thing a
+    client that has already backed off should invite.
+    """
+    error = RateLimitedError("the ticketing API is rate limiting this client", attempts=4)
+
+    assert "attempted 4 times" in error.user_message
+    assert "given up" in error.user_message
+
+
+async def test_the_retry_policy_records_its_attempt_count_on_the_failure() -> None:
+    """The wiring, asserted where it happens rather than where it is read.
+
+    Without this the sentences above would be correct and unreachable: `user_message` would
+    always take the single-attempt branch, because nothing would ever set `attempts`. A value
+    nothing writes is a property nothing tests.
+    """
+    attempts = 3
+
+    async def always_throttled() -> None:
+        raise RateLimitedError("throttled", retry_after_s=0.0)
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    with pytest.raises(RateLimitedError) as caught:
+        await call_with_retry(
+            always_throttled,
+            policy=RetryPolicy(max_attempts=attempts),
+            sleep=no_wait,
+        )
+
+    assert caught.value.attempts == attempts
+
+
+async def test_a_successful_retry_reports_nothing_extra() -> None:
+    """A call that eventually worked must not come back carrying a failure's history."""
+    spent = 0
+
+    async def fails_once() -> str:
+        nonlocal spent
+        if spent == 0:
+            spent += 1
+            raise RateLimitedError("throttled", retry_after_s=0.0)
+        return "ok"
+
+    async def no_wait(_: float) -> None:
+        return None
+
+    result = await call_with_retry(fails_once, policy=RetryPolicy(max_attempts=3), sleep=no_wait)
+
+    assert result == "ok"

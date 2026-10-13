@@ -54,6 +54,7 @@ class TicketingError(Exception):
         code: str | None = None,
         detail: str | None = None,
         request_id: str | None = None,
+        attempts: int = 1,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -61,6 +62,29 @@ class TicketingError(Exception):
         self.code = code
         self.detail = detail
         self.request_id = request_id
+        #: How many times the call was attempted before it gave up. Set by the retry policy
+        #: when it exhausts its budget, so a caller can tell "this failed once" from "this
+        #: failed four times and we stopped". One by default, because a failure raised outside
+        #: a retry loop genuinely was attempted once.
+        self.attempts = attempts
+
+    @property
+    def user_message(self) -> str:
+        """The sentence to show a person, which knows how hard the client already tried.
+
+        Separate from ``message`` because the two answer different questions. ``message``
+        describes what the backend did, which is what a log wants. A person needs to know
+        whether trying again is worthwhile — and "the API is rate limiting this client" reads
+        like something that just happened once, so a user shown only that would reasonably
+        retry by hand, which is the last thing a client that already backed off four times
+        wants them to do.
+        """
+        if self.attempts <= 1:
+            return self.message
+        return (
+            f"{self.message}. This was attempted {self.attempts} times and has been given up "
+            f"on rather than retried further."
+        )
 
     def __str__(self) -> str:
         parts = [self.message]

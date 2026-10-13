@@ -80,6 +80,15 @@ def _describe(error: TicketingError) -> str:
     from .errors import AuthenticationError, NotFoundError, RateLimitedError, ValidationError
     from .writes import UnresolvedWriteError
 
+    # Checked first, before any per-kind sentence, because an exhausted retry budget changes
+    # what the right advice *is*. "Waiting is required before retrying" is the correct sentence
+    # for a single 429 - and actively wrong once the client has already backed off and tried
+    # four times, because it tells the model to do the one thing that has just been established
+    # not to work. The per-kind sentence would still be true about the backend and would still
+    # mislead about what to do next.
+    if error.attempts > 1:
+        return error.user_message
+
     if isinstance(error, NotFoundError):
         return "No ticket with that id exists. Check the id before retrying."
     if isinstance(error, ValidationError):
