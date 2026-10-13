@@ -1,0 +1,73 @@
+# ============================================================================
+# Docker build context (repo root).
+#
+# Build strategy: every Python image is built with the REPOSITORY ROOT as the
+# build context, because the services share a single `uv.lock` workspace. That
+# makes this file — not a per-service one — the thing that decides what the
+# daemon has to hash and upload.
+#
+# Keep:  pyproject.toml, uv.lock, services/**/pyproject.toml, services/**/*.py,
+#        alembic/**, and any static assets a service needs.
+# Drop:  everything below — VCS, docs, tests, runtime data, caches, media.
+# ============================================================================
+
+# --- VCS -------------------------------------------------------------------
+.git
+.gitignore
+.gitattributes
+.github
+
+# --- Documentation and assignment material ---------------------------------
+docs
+*.md
+!README.md
+AGENTCORE.md
+LICENSE
+
+# --- Never ship runtime state or secrets -----------------------------------
+data
+.env
+.env.*
+secrets
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+
+# --- Python caches / virtualenvs -------------------------------------------
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+.venv
+**/.venv
+uv.lock.bak
+
+# --- Tests and dev tooling (not needed inside images) ----------------------
+**/tests
+**/test_*.py
+**/*_test.py
+.pytest_cache
+specs
+tests
+
+# --- The mock and the web service (not needed by Python service images) ----
+mock-ticketing
+services/web/static
+services/web/*.conf
+
+# --- Node ------------------------------------------------------------------
+node_modules
+**/node_modules
+
+# --- Editor / OS noise -----------------------------------------------------
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+*.swp
+*.log

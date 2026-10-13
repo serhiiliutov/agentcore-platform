@@ -1,0 +1,10 @@
+services:
+  ticketing:
+    build: ./mock-ticketing
+    ports:
+      - "8000:8000"
+    environment:
+      API_KEY: ${API_KEY:-dev-key-123}
+      FLAKY: ${FLAKY:-0}          # set to 1 to inject 429/500 failures
+      FLAKY_RATE: ${FLAKY_RATE:-0.3}
+      LATENCY_MS: ${LATENCY_MS:-0}

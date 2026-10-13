@@ -1,0 +1,217 @@
+# ============================================================================
+# AgentCore Platform — uv workspace root
+#
+# This file is NOT an application package. It holds:
+#   * the uv workspace definition (which services exist),
+#   * the single `uv.lock` that makes every build reproducible,
+#   * the shared toolchain configuration (ruff, mypy, pytest, coverage),
+#   * the dev tooling used to verify the repository.
+#
+# Each service declares its own runtime dependencies in its own pyproject:
+#   services/agent/pyproject.toml          → agent_service
+#   services/mcp-ticketing/pyproject.toml  → ticketing_mcp
+#
+# Local equivalents of the Makefile targets live in devtasks/ (see `make help`):
+#   uv run python -m devtasks --help
+# ============================================================================
+
+[project]
+name = "agentcore-platform"
+version = "0.1.0"
+description = "AgentCore Platform Engineer assignment: an IT helpdesk agent with MCP tools, approval gating, memory, evals and tracing."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Serhii Liutov" }]
+keywords = ["agents", "mcp", "agentcore", "helpdesk", "evals"]
+classifiers = [
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+# The root is a configuration holder, not a distributable package.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["services/agent", "services/mcp-ticketing"]
+
+# ---------------------------------------------------------------------------
+# Dev tooling (never installed into runtime images)
+# ---------------------------------------------------------------------------
+[dependency-groups]
+dev = [
+  "pytest>=8.4",
+  "pytest-asyncio>=1.0",
+  "pytest-cov>=6.2",
+  "mypy>=1.16",
+  "ruff>=0.12",
+  "detect-secrets>=1.5",
+  # The services themselves. Listing them here is what makes a plain
+  # `uv sync --all-groups` install the whole workspace into one environment:
+  # without it uv installs only this root project and its dev tooling, because
+  # nothing else depends on the members. Runtime images stay slim by syncing one
+  # package at a time: `uv sync --frozen --no-dev --package agent-service`.
+  "agent-service",
+  "ticketing-mcp",
+]
+
+[tool.uv.sources]
+agent-service = { workspace = true }
+ticketing-mcp = { workspace = true }
+
+# ============================================================================
+# ruff — linting and formatting
+# ============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["services/agent/src", "services/mcp-ticketing/src", "tests", "eval", "devtasks"]
+extend-exclude = [
+  "docs/agent-platform-assignment",
+  "mock-ticketing",
+  "data",
+  ".venv",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "A",   # flake8-builtins
+  "C4",  # flake8-comprehensions
+  "SIM", # flake8-simplify
+  "RET", # flake8-return
+  "PTH", # flake8-use-pathlib
+  "TID", # flake8-tidy-imports
+  "TRY", # tryceratops
+  "LOG", # flake8-logging
+  "RUF", # ruff-specific
+]
+ignore = [
+  "E501",    # line length is the formatter's job, not the linter's
+  "TRY003",  # long inline raise messages are intentional: they are model-facing
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent_service", "ticketing_mcp", "devtasks"]
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and fixtures legitimately accept unused arguments (pytest injects them).
+"tests/**" = ["ARG001", "ARG002"]
+"services/*/tests/**" = ["ARG001", "ARG002"]
+"eval/**" = ["ARG001"]
+"devtasks/**" = ["ARG001", "T201"]
+# FastAPI handlers legitimately take dependency-injected arguments they may not use directly.
+"services/agent/src/agent_service/api/**" = ["ARG001", "B008"]
+# Error-message construction reads better with short local helpers.
+"services/mcp-ticketing/src/ticketing_mcp/errors.py" = ["TRY003"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+
+# ============================================================================
+# mypy — static typing
+#
+# `strict = true` from day one. It is far easier to relax one rule with a
+# documented reason than to retrofit types onto 3k lines of untyped code.
+# ============================================================================
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+show_error_codes = true
+pretty = true
+files = [
+  "services/agent/src",
+  "services/mcp-ticketing/src",
+  "tests",
+  "eval",
+  "devtasks",
+]
+mypy_path = ["services/agent/src", "services/mcp-ticketing/src", "."]
+plugins = ["pydantic.mypy"]
+# Both are required to type-check directories that are not importable packages
+# (`tests/`, `eval/`). Without them mypy derives module names from the file
+# basename alone, and two `__main__.py` files collide as "duplicate module".
+explicit_package_bases = true
+namespace_packages = true
+
+[[tool.mypy.overrides]]
+# Third-party libraries without usable type information of their own.
+module = ["mcp.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Dev tooling may be pragmatic; product code may not.
+module = ["devtasks.*", "eval.*", "tests.*"]
+disallow_untyped_decorators = false
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ============================================================================
+# pytest — one runner for unit, integration and eval-adjacent tests
+# ============================================================================
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests", "services"]
+pythonpath = [
+  "services/agent/src",
+  "services/mcp-ticketing/src",
+  ".",
+]
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--import-mode=importlib",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+norecursedirs = [
+  ".*",
+  "data",
+  "docs",
+  "mock-ticketing",
+  "node_modules",
+]
+markers = [
+  "integration: needs running services (docker compose up, or local uvicorn)",
+  "live: needs a real model provider credential; deselected unless --run-live",
+  "slow: takes more than a few seconds",
+]
+filterwarnings = [
+  "error::RuntimeWarning",
+]
+
+# ============================================================================
+# coverage — used by `make test` in CI
+# ============================================================================
+[tool.coverage.run]
+branch = true
+source = ["agent_service", "ticketing_mcp"]
+omit = ["*/tests/*", "*/alembic/versions/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "\\.\\.\\.",
+]

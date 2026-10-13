@@ -1,0 +1,98 @@
+# ============================================================================
+# AgentCore Platform — ignore rules
+#
+# Policy (see docs/plan/00-conventions.md):
+#   * Secrets are NEVER committed. Only `.env.example` is tracked.
+#   * Runtime state (SQLite, JSONL traces) is NEVER committed.
+#   * Internal/private working notes are NEVER committed.
+#   * `uv.lock` IS committed — it is the reproducibility guarantee.
+# ============================================================================
+
+# --- Secrets / environment -------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+secrets.*
+credentials.json
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+ENV/
+.python-version.bak
+
+# --- Python tooling caches -------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.tox/
+
+# --- uv --------------------------------------------------------------------
+# `uv.lock` is committed on purpose. The local cache is not.
+.uv/
+
+# --- Node (web service tooling, if ever added) -----------------------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# --- Runtime data (SQLite, JSONL traces, uploads) ---------------------------
+data/
+!data/.gitkeep
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# --- Eval scratch ----------------------------------------------------------
+# NOTE: eval/results/latest.{md,json} ARE committed — they are the evidence
+# required by the assignment. Only transient artefacts are ignored.
+eval/.cache/
+eval/results/*.tmp
+
+# --- Internal / private working documents (project convention) --------------
+docs/internal/
+docs/scratch/
+notes/
+*.local.md
+*.local.json
+*.local.yaml
+.local/
+
+# --- Media: commit screenshots and small GIFs, not raw recordings -----------
+*.mp4
+*.mov
+*.mkv
+*.avi
+
+# --- OS / editor -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+*.swp
+*~

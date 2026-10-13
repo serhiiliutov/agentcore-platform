@@ -1,0 +1,64 @@
+# ============================================================================
+# Line-ending and diff normalisation.
+#
+# Why this matters here: development happens on Windows, CI runs on Linux and
+# the container is Linux. Without this file a Windows checkout rewrites every
+# shell script and YAML with CRLF and breaks the Linux build.
+#
+# Rule of thumb: everything text is LF everywhere. Windows-only scripts keep
+# CRLF so they run in a default PowerShell.
+# ============================================================================
+
+# Default: normalise to LF in the repository.
+* text=auto eol=lf
+
+# --- Explicit text (LF) ----------------------------------------------------
+*.py       text eol=lf
+*.pyi      text eol=lf
+*.toml     text eol=lf
+*.cfg      text eol=lf
+*.ini      text eol=lf
+*.txt      text eol=lf
+*.md       text eol=lf
+*.json     text eol=lf
+*.jsonl    text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.sql      text eol=lf
+*.html     text eol=lf
+*.css      text eol=lf
+*.js       text eol=lf
+*.mjs      text eol=lf
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.sqlite   binary
+Dockerfile text eol=lf
+Makefile   text eol=lf
+*.sh       text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# --- Windows-only scripts (CRLF so double-click works) ---------------------
+*.ps1      text eol=crlf
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+
+# --- Binary ----------------------------------------------------------------
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.webp     binary
+*.pdf      binary
+*.xlsx     binary
+*.zip      binary
+*.gz       binary
+*.woff     binary
+*.woff2    binary
+
+# --- Diff behaviour --------------------------------------------------------
+# `uv.lock` is huge and machine-generated; collapse it in diffs and reviews.
+uv.lock    -diff linguist-generated=true
+*.lock     -diff linguist-generated=true
+docs/agent-platform-assignment/**   linguist-documentation=true
