@@ -88,6 +88,10 @@ class ApprovalRepository:
         eventual execution is replay-safe by construction.
         """
         moment = now or utc_now()
+        key = client_request_id or f"appr-{uuid.uuid4().hex}"
+        if client_request_id is not None and self._key_is_taken(client_request_id):
+            key = f"appr-{uuid.uuid4().hex}"
+
         approval = Approval(
             id=str(uuid.uuid4()),
             session_id=session_id,
@@ -95,13 +99,29 @@ class ApprovalRepository:
             action=action,
             payload=payload,
             state=ApprovalState.PENDING.value,
-            client_request_id=client_request_id or f"appr-{uuid.uuid4().hex}",
+            client_request_id=key,
             requested_at=moment,
             expires_at=moment + timedelta(seconds=ttl_seconds),
         )
         self._session.add(approval)
         self._session.flush()
         return approval
+
+    def _key_is_taken(self, client_request_id: str) -> bool:
+        """Whether a proposal already holds this idempotency key.
+
+        The column is globally unique because a key names one write, and a second proposal
+        carrying the same key used to fail the insert outright -- which the HTTP layer reported
+        as a 500. The scripted provider's key is fixed, so that happened on every run after the
+        first and made the demo unusable.
+
+        Not scoped by user or session: the constraint is the column's, so a narrower question
+        would let two rows collide anyway and answer wrongly.
+        """
+        found = self._session.execute(
+            select(Approval.id).where(Approval.client_request_id == client_request_id).limit(1)
+        ).first()
+        return found is not None
 
     def get(self, approval_id: str, *, user_id: str) -> Approval | None:
         """Fetch one proposal, or ``None`` if it is not this user's.
