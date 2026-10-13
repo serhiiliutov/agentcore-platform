@@ -85,6 +85,28 @@ class InflightRegistry:
         run.token.cancel("cancelled by the user")
         return True
 
+    def cancel_session(self, session_id: str, *, user_id: str) -> InflightRun | None:
+        """Ask whichever run is executing in this conversation to stop.
+
+        Keyed by session rather than by a run id because a *client* only ever knows the session
+        — it is in the response it was given — and the contract carries no run id. Requiring one
+        would mean adding a field to the documented AgentCore response shape to support a local
+        convenience, which is the wrong trade: the contract is the platform's, not ours.
+
+        A conversation has at most one turn in flight, because a turn ends the request that
+        started it. So "the run in this session" is unambiguous, and a second turn cannot be
+        started while one is running without the client choosing to overlap them — in which case
+        cancelling the session's run is still what the caller meant.
+
+        Returns the run that was found, or ``None`` when there was none — so the endpoint can
+        answer 404 and the caller can tell "stopped it" from "there was nothing to stop".
+        """
+        for run in self._runs.values():
+            if run.session_id == session_id and run.user_id == user_id:
+                run.token.cancel("cancelled by the user")
+                return run
+        return None
+
     @property
     def count(self) -> int:
         """How many runs are executing. For a test, and for a health reading."""

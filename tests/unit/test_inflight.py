@@ -140,3 +140,76 @@ def test_cancelling_carries_a_reason_for_the_trace() -> None:
 
     assert run.token.reason, "the token must say why, not just that it happened"
     assert "cancel" in run.token.reason.lower()
+
+
+# --- cancelling by conversation -----------------------------------------------
+
+
+def test_cancelling_a_session_stops_the_run_in_it() -> None:
+    """What the endpoint uses: a client knows its session id, and the contract has no run id."""
+    registry = InflightRegistry()
+    run = registry.start(session_id="sess-1", user_id="alice")
+
+    found = registry.cancel_session("sess-1", user_id="alice")
+
+    assert found is not None
+    assert found.run_id == run.run_id
+    assert run.token.cancelled
+
+
+def test_cancelling_a_session_with_nothing_running_says_so() -> None:
+    """``None`` rather than raising, so the endpoint answers 404 rather than 500.
+
+    The distinction a caller needs is "stopped it" versus "there was nothing to stop", and a
+    bool would not carry it.
+    """
+    registry = InflightRegistry()
+
+    assert registry.cancel_session("sess-nothing", user_id="alice") is None
+
+
+def test_cancelling_a_session_does_not_reach_another_users_run() -> None:
+    """Same scoping rule as everywhere else: someone else's run is not yours to stop."""
+    registry = InflightRegistry()
+    run = registry.start(session_id="sess-1", user_id="alice")
+
+    assert registry.cancel_session("sess-1", user_id="mallory") is None
+    assert run.token.cancelled is False
+
+
+def test_cancelling_a_session_leaves_other_sessions_alone() -> None:
+    registry = InflightRegistry()
+    first = registry.start(session_id="sess-1", user_id="alice")
+    second = registry.start(session_id="sess-2", user_id="alice")
+
+    registry.cancel_session("sess-1", user_id="alice")
+
+    assert first.token.cancelled
+    assert second.token.cancelled is False
+
+
+def test_the_same_session_and_user_twice_still_finds_the_run() -> None:
+    """A second click must not read as nothing-to-stop while the run is still stopping."""
+    registry = InflightRegistry()
+    registry.start(session_id="sess-1", user_id="alice")
+
+    assert registry.cancel_session("sess-1", user_id="alice") is not None
+    assert registry.cancel_session("sess-1", user_id="alice") is not None
+
+
+def test_two_users_may_share_a_session_id_without_crossing_over() -> None:
+    """Session ids come from clients, so two users can legitimately pick the same one.
+
+    Session ids are not a namespace this service owns — the platform supplies them and a client
+    may choose its own — so the user is part of the identity, not an afterthought.
+    """
+    registry = InflightRegistry()
+    alices = registry.start(session_id="sess-shared", user_id="alice")
+    bob = registry.start(session_id="sess-shared", user_id="bob")
+
+    found = registry.cancel_session("sess-shared", user_id="bob")
+
+    assert found is not None
+    assert found.run_id == bob.run_id
+    assert bob.token.cancelled
+    assert alices.token.cancelled is False
