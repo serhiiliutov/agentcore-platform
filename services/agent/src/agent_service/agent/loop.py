@@ -35,6 +35,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from agent_service.agent.budget import (
+    CancelToken,
+    Deadline,
+    DeadlineExceededError,
+    RunCancelledError,
+)
 from agent_service.db.models.approval import Approval
 from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.providers.base import (
@@ -131,6 +137,8 @@ class AgentLoop:
         user_id: str,
         limits: LoopLimits | None = None,
         system_prompt: str = "",
+        deadline: Deadline | None = None,
+        cancel: CancelToken | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -140,6 +148,12 @@ class AgentLoop:
         self._user_id = user_id
         self._limits = limits or LoopLimits()
         self._system_prompt = system_prompt
+        #: Wall-clock allowance for the whole turn, shared with the executor. Optional so a test
+        #: can drive the loop with no clock at all.
+        self._deadline = deadline
+        #: Someone else's flag. The loop reads it, never sets it — the reason a run was cancelled
+        #: is not something the run gets to author.
+        self._cancel = cancel
 
     async def run(self, prompt: str, *, history: Sequence[Message] = ()) -> TurnResult:
         """Run one turn to its end — an answer, a proposal, or the budget.
@@ -152,47 +166,78 @@ class AgentLoop:
         records: list[ToolCallRecord] = []
         proposals: list[Approval] = []
         last_usage = None
+        steps = 0
 
-        for step in range(1, self._limits.max_steps + 1):
-            turn = await self._provider.chat(
-                messages,
-                self._tools.as_provider_tools(),
-                budget=self._limits.max_steps - step,
+        try:
+            for step in range(1, self._limits.max_steps + 1):
+                steps = step
+                # Checked *between* steps, never inside one. A step already running is never torn
+                # down, which is what keeps a write that is executing able to finish and be
+                # recorded — see the module docstring on why that matters.
+                self._checkpoint()
+
+                turn = await self._provider.chat(
+                    messages,
+                    self._tools.as_provider_tools(),
+                    budget=self._limits.max_steps - step,
+                )
+                last_usage = turn.usage
+
+                if not turn.wants_tools:
+                    return TurnResult(
+                        text=turn.text,
+                        stop_reason=turn.stop_reason,
+                        tool_calls=tuple(records),
+                        steps=step,
+                        usage=last_usage,
+                    )
+
+                # The assistant turn is appended before execution, because every provider
+                # requires the call and its result to correspond when the conversation
+                # continues.
+                messages.append(Message.assistant(turn.text, turn.tool_calls))
+
+                # A proposal stops the turn. See the module docstring: the result does not exist
+                # yet, so there is nothing truthful to feed back.
+                proposal = self._propose_if_write(turn, records)
+                if proposal is not None:
+                    proposals.append(proposal)
+                    return TurnResult(
+                        text=(
+                            f"{turn.text}\n\n"
+                            f"This needs your approval before it runs "
+                            f"(approval {proposal.id}, action {proposal.action})."
+                        ).strip(),
+                        stop_reason="proposed",
+                        pending=tuple(proposals),
+                        tool_calls=tuple(records),
+                        steps=step,
+                        usage=last_usage,
+                    )
+
+                await self._execute_reads(turn, messages, records)
+        except RunCancelledError as exc:
+            # A state, not a failure. The partial transcript is kept and the reason is carried: a
+            # caller handed an exception cannot tell "the user changed their mind" from "the
+            # process is dying", and those want opposite responses.
+            return TurnResult(
+                text=f"I stopped because the run was cancelled: {exc}",
+                stop_reason="cancelled",
+                tool_calls=tuple(records),
+                steps=steps,
+                usage=last_usage,
             )
-            last_usage = turn.usage
-
-            if not turn.wants_tools:
-                return TurnResult(
-                    text=turn.text,
-                    stop_reason=turn.stop_reason,
-                    tool_calls=tuple(records),
-                    steps=step,
-                    usage=last_usage,
-                )
-
-            # The assistant turn is appended before execution, because every provider requires
-            # the call and its result to correspond when the conversation continues.
-            messages.append(Message.assistant(turn.text, turn.tool_calls))
-
-            # A proposal stops the turn. See the module docstring: the result does not exist
-            # yet, so there is nothing truthful to feed back.
-            proposal = self._propose_if_write(turn, records)
-            if proposal is not None:
-                proposals.append(proposal)
-                return TurnResult(
-                    text=(
-                        f"{turn.text}\n\n"
-                        f"This needs your approval before it runs "
-                        f"(approval {proposal.id}, action {proposal.action})."
-                    ).strip(),
-                    stop_reason="proposed",
-                    pending=tuple(proposals),
-                    tool_calls=tuple(records),
-                    steps=step,
-                    usage=last_usage,
-                )
-
-            await self._execute_reads(turn, messages, records)
+        except DeadlineExceededError as exc:
+            # Said as a thing that gave up, not as a thing that broke. A turn that ran out of
+            # time is not an error state a user should retry blindly, and it must not look like
+            # one in the trace.
+            return TurnResult(
+                text=f"I gave up on this turn: {exc}",
+                stop_reason="timed_out",
+                tool_calls=tuple(records),
+                steps=steps,
+                usage=last_usage,
+            )
 
         # The ceiling, not a failure: a model that kept calling tools was cut off, which is a
         # fact about this turn and worth reporting as such.
@@ -288,6 +333,19 @@ class AgentLoop:
             text = await self._call(call)
             records.append(ToolCallRecord(call=call, outcome="executed", detail=""))
             messages.append(Message.tool_result(call, text))
+
+    def _checkpoint(self) -> None:
+        """Stop between steps if the run was cancelled or the turn is out of time.
+
+        One method rather than two checks because they are checked at exactly the same moments
+        for the same reason, and having them in one place means a future step cannot be added
+        with only one of them. A missing cancel check is a run that will not stop; a missing
+        deadline check is a turn with no ceiling. Neither fails loudly at review time.
+        """
+        if self._cancel is not None:
+            self._cancel.raise_if_cancelled()
+        if self._deadline is not None and self._deadline.expired:
+            raise DeadlineExceededError(self._deadline.budget_s, self._deadline.spent_s)
 
     async def _call(self, call: ToolCallRequest) -> str:
         """Run one tool, turning a transport failure into something the model can read."""
