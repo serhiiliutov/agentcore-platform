@@ -1,0 +1,27 @@
+# As-received checksums for the starter kit's protected files.
+#
+# The assignment says: "Don't change the ticketing API itself; if you have to, say
+# what you changed and why in your README." The mock is the fixture — the whole
+# exercise is surviving its failures, so editing it would invalidate the work.
+#
+# These hashes were recorded at Stage 0, from the files exactly as received in the
+# starter kit. Nothing in the mock has been edited: the kit's files were moved to
+# the repository root (mock-ticketing/, CONTRACT.md) and to this folder
+# (README.md, cases.sample.json), and their contents were not touched.
+#
+# tests/unit/test_starter_kit_integrity.py recomputes these on every test run, so
+# an accidental edit to the fixture fails the suite rather than quietly changing
+# the thing being measured.
+#
+# Format is the standard sha256sum layout: <64 hex chars><two spaces><relative path>
+#
+# Deliberately not listed:
+#   docker-compose.yml  — ours to extend (it gains the agent, MCP and web services)
+#   README.md, cases.sample.json — kept here for provenance; sample input and
+#                        documentation, not part of the fixture's contract
+b4b77809301bebd4888aa3a39e62ef01c61f6053f3e1f9cac6e7e5e404f70286  mock-ticketing/app.py
+25a84582ccd8b23ccf00263fe8a98f41cd31278ddfa5c306fd13a2c1ce8ed660  mock-ticketing/seed.py
+e6bf91f6c0823c19ea57646fcfd6a550cedb885475edf53241f18c9c0af6570f  mock-ticketing/Dockerfile
+ff111be454a639448aad6d0da9e943fcc7b214231cf28e99360071632a2cf0a1  mock-ticketing/requirements.txt
+5b26b62861829b3dabd1d90285fa8cd43fcf7a51a7c8f5c0cf10938ebff567dd  mock-ticketing/openapi.json
+f20e26c3ad411297ad75847a9a3f5504b8c05b51ac99edb634058c8d3e1ff199  CONTRACT.md
