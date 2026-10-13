@@ -121,6 +121,9 @@ INDEX_HEAD = """<!DOCTYPE html>
   <form id="ask" autocomplete="off">
     <input id="message" placeholder="Describe the problem, e.g. the printer is jammed again" required>
     <button class="primary" type="submit">Send</button>
+    <!-- Shown only while a turn is in flight. A cancel that is always visible invites clicking it
+         when there is nothing to stop, and the 404 that follows reads like a broken button. -->
+    <button class="bad" type="button" id="cancel" hidden>Cancel</button>
   </form>
   <p class="hint">Reads run immediately. A write is proposed and waits for your approval above.</p>
 </main>
@@ -142,7 +145,26 @@ INDEX_SCRIPT = r"""
   var message = document.getElementById("message");
   var userField = document.getElementById("user");
   var sessionField = document.getElementById("session");
-  var sendButton = form.querySelector("button");
+  var sendButton = form.querySelector("button[type=submit]");
+  var cancelButton = document.getElementById("cancel");
+
+  // A session id is minted here rather than left for the server to assign, because cancelling
+  // needs to name the conversation *while* the turn is running — and until the response arrived
+  // the page would not know what to name. Minting it up front means the Cancel button works on
+  // the very first turn as well as later ones.
+  function mintSession() {
+    var bytes = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    var hex = "";
+    for (var j = 0; j < bytes.length; j++) {
+      hex += ("0" + bytes[j].toString(16)).slice(-2);
+    }
+    return "sess-" + hex;
+  }
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -159,7 +181,11 @@ INDEX_SCRIPT = r"""
   function clearError() { banner.hidden = true; }
 
   function user() { return userField.value.trim() || "alice"; }
-  function session() { return sessionField.value.trim(); }
+
+  function session() {
+    if (!sessionField.value.trim()) sessionField.value = mintSession();
+    return sessionField.value.trim();
+  }
 
   function parseUtc(value) {
     var text = String(value);
@@ -298,11 +324,12 @@ INDEX_SCRIPT = r"""
     if (!text) return;
     clearError();
     sendButton.disabled = true;
+    cancelButton.hidden = false;
     renderTurn("user", text, null);
 
     try {
-      var body = { prompt: text, user_id: user() };
-      if (session()) body.session_id = session();
+      var running = session();
+      var body = { prompt: text, user_id: user(), session_id: running };
       var result = await json("invocations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -318,7 +345,32 @@ INDEX_SCRIPT = r"""
       showError(error.message);
     } finally {
       sendButton.disabled = false;
+      cancelButton.hidden = true;
       message.focus();
+    }
+  });
+
+  cancelButton.addEventListener("click", async function () {
+    cancelButton.disabled = true;
+    clearError();
+    try {
+      var result = await json(
+        "invocations/" + encodeURIComponent(session()) + "/cancel",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: user() })
+        }
+      );
+      // `stopping`, not `stopped`: the turn ends at its next checkpoint, and a step already
+      // running - including a write - is allowed to finish. Saying otherwise would promise
+      // something the mechanism does not.
+      renderTurn("cancelled", result.detail || "The turn is stopping.", null);
+    } catch (error) {
+      // A 404 here is ordinary: the turn may have finished between the click and the request.
+      showError(error.message);
+    } finally {
+      cancelButton.disabled = false;
     }
   });
 
