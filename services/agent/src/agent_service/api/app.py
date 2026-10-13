@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 
 from agent_service.config import Settings, get_settings
 
+from .approval_routes import DecisionHandler, create_approval_router
 from .models import (
     HealthResponse,
     InvocationRequest,
@@ -83,16 +84,22 @@ def create_app(
     settings: Settings | None = None,
     *,
     invocation_handler: InvocationHandler | None = None,
+    decision_handler: DecisionHandler | None = None,
 ) -> FastAPI:
     """Build the application.
 
-    ``settings`` and ``invocation_handler`` are injectable so a test can drive the contract
-    without a database, an MCP server or a model provider, and so Stage 8 can install the
-    real loop without this module importing it.
+    ``settings``, ``invocation_handler`` and ``decision_handler`` are injectable so a test can
+    drive the contract without a database, an MCP server or a model provider, and so the loop
+    and the gate can be installed without this module importing either.
+
+    The decision router is included unconditionally: with no handler it answers 501 per the
+    default in `create_approval_router`, which keeps the route's existence visible in the
+    OpenAPI-less surface rather than making it a 404 that looks like a typo.
     """
     resolved = settings or get_settings()
     handler = invocation_handler or _unconfigured_handler
     inflight = _InflightCounter()
+    decisions = create_approval_router(decision_handler)
 
     app = FastAPI(
         title="agent-service",
@@ -105,6 +112,8 @@ def create_app(
 
     app.state.settings = resolved
     app.state.inflight = inflight
+
+    app.include_router(decisions)
 
     @app.get("/ping", response_model=HealthResponse)
     async def ping() -> HealthResponse:
