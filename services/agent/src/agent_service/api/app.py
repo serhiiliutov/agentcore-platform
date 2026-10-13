@@ -35,6 +35,7 @@ from starlette.types import Lifespan
 from agent_service.config import Settings, get_settings
 
 from .approval_routes import DecisionHandler, create_approval_router
+from .cancel_routes import CancelHandler, create_cancel_router
 from .models import (
     HealthResponse,
     InvocationRequest,
@@ -93,6 +94,7 @@ def create_app(
     invocation_handler: InvocationHandler | None = None,
     decision_handler: DecisionHandler | None = None,
     pending_approvals: PendingApprovalListing | None = None,
+    cancel_handler: CancelHandler | None = None,
     lifespan: Lifespan[Any] | None = None,
 ) -> FastAPI:
     """Build the application.
@@ -110,6 +112,7 @@ def create_app(
     handler = invocation_handler or _unconfigured_handler
     inflight = _InflightCounter()
     decisions = create_approval_router(decision_handler)
+    cancels = create_cancel_router(cancel_handler)
     ui = create_ui_router(pending_approvals)
 
     app = FastAPI(
@@ -130,6 +133,7 @@ def create_app(
     app.state.inflight = inflight
 
     app.include_router(decisions)
+    app.include_router(cancels)
     app.include_router(ui)
 
     @app.get("/ping", response_model=HealthResponse)
