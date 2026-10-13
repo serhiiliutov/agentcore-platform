@@ -25,7 +25,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, String, Text
+from sqlalchemy import JSON, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_service.db.base import Base, utc_now
@@ -35,10 +35,6 @@ class IdempotencyKey(Base):
     """One recognised request, and the response it already produced."""
 
     __tablename__ = "idempotency_keys"
-    __table_args__ = (
-        # Entries are pruned by age; the sweep needs to find old ones cheaply.
-        Index("ix_idempotency_keys_expires_at", "expires_at"),
-    )
 
     #: The client-supplied request id.
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
@@ -57,7 +53,13 @@ class IdempotencyKey(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     #: Kept long enough that a delayed retry still matches, then pruned. An unbounded
-    #: ledger is a slow leak.
+    #: ledger is a slow leak. Indexed because the sweep finds old entries by age.
+    #:
+    #: ``index=True`` rather than an explicit ``Index`` in ``__table_args__``: the naming
+    #: convention already derives ``ix_idempotency_keys_expires_at`` from this column, so
+    #: declaring it both ways produced two indexes under one name and ``create_all`` failed
+    #: on the second. The migration never noticed, because Alembic emitted a single index and
+    #: nothing had called ``create_all`` on this metadata until Stage 8's tests did.
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
     def __repr__(self) -> str:
