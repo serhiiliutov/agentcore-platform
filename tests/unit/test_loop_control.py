@@ -82,13 +82,26 @@ class FakeProvider:
 
 
 class FakeExecutor:
-    """Echoes each call, and counts the ones that happened."""
+    """Echoes each call, counts the ones that happened, and records the slice it was given.
+
+    ``slices`` is the point of the ``timeout_s`` parameter existing at all: it lets a test assert
+    what the turn's budget actually granted a call, rather than only that the call happened.
+    """
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.slices: list[float | None] = []
+        #: Run *inside* the call, so a test can burn the budget while a step is in flight -
+        #: which is the only way to model the situation the loop must not interrupt.
+        self.on_call: Any = None
 
-    async def call(self, name: str, arguments: dict[str, Any]) -> str:
+    async def call(
+        self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
+    ) -> str:
+        if self.on_call is not None:
+            self.on_call()
         self.calls.append(name)
+        self.slices.append(timeout_s)
         return f"{name} ran"
 
 
@@ -238,14 +251,18 @@ async def test_the_deadline_is_not_checked_inside_a_step() -> None:
     deadline = Deadline(budget_s=5.0, _now=clock)
     provider = FakeProvider([_read_call()])
     executor = FakeExecutor()
-    provider.on_chat = lambda: clock.advance(99.0)
+    # Burned *inside* the call, which is the scenario that matters: the budget was fine when the
+    # step began, and is gone by the time it ends. Burning it during the provider reply instead
+    # would make the grant refuse the call before it started, which is correct behaviour but a
+    # different case — and it would leave the "in flight" claim untested.
+    executor.on_call = lambda: clock.advance(99.0)
 
     result = await _loop(provider, executor=executor, deadline=deadline).run("find it")
 
     assert executor.calls == ["search_tickets"], "the step in flight was allowed to complete"
     assert [record.outcome for record in result.tool_calls] == ["executed"]
     assert result.stop_reason == "timed_out"
-    assert result.steps == 1
+    assert result.steps == 1, "the step that began is the only one counted"
 
 
 @pytest.mark.asyncio
@@ -337,3 +354,48 @@ def test_a_cancelled_turn_reaches_the_wire_as_cancelled() -> None:
     response = to_invocation_response(result, session_id="sess-1")
 
     assert response.stop_reason == "cancelled"
+
+
+# --- the granted slice --------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_slice_granted_to_a_call_is_bounded_by_the_turn_budget() -> None:
+    """The budget bounds a *single* call, not only the gaps between them.
+
+    Without this, one tool that never returns would hold the turn open forever: the next
+    checkpoint is never reached, so nothing would ever notice the budget was gone. The grant is
+    what closes that hole, and asserting it here is what keeps it closed — the parameter could be
+    dropped from the call site and every other test in this file would still pass.
+    """
+    clock = FakeClock()
+    deadline = Deadline(budget_s=30.0, step_ceiling_s=10.0, _now=clock)
+    provider = FakeProvider([_read_call()])
+    executor = FakeExecutor()
+
+    result = await _loop(provider, executor=executor, deadline=deadline).run("find it")
+
+    assert len(executor.slices) == 1, "one call, one grant"
+    granted = executor.slices[0]
+    assert granted is not None
+    # The step ceiling is smaller than what the turn has left, so the ceiling wins.
+    assert granted <= 10.0, "a call may not be granted more than the step ceiling"
+    assert granted > 0.0, "a call with time left must be granted a positive slice"
+    # Two steps: the one that ran the tool, and the one that answered with what it found. Only
+    # the first grants a slice, which is what the assertion above pins.
+    assert result.steps == 2
+
+
+@pytest.mark.asyncio
+async def test_a_loop_with_no_deadline_grants_no_slice() -> None:
+    """The executor's own ceiling applies when the turn has no budget.
+
+    A test that drives the loop with no clock should not be handed a fabricated slice, and the
+    adapter already has a sensible default. Passing ``None`` is how the loop says "not mine to
+    decide", rather than inventing a number.
+    """
+    executor = FakeExecutor()
+
+    await _loop(FakeProvider([_read_call()]), executor=executor).run("find it")
+
+    assert executor.slices == [None]

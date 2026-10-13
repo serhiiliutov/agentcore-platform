@@ -67,8 +67,20 @@ class ToolExecutor(Protocol):
     MCP server already produces and what the loop feeds back.
     """
 
-    async def call(self, name: str, arguments: dict[str, Any]) -> str:
-        """Run one tool and return its result as text."""
+    async def call(
+        self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
+    ) -> str:
+        """Run one tool and return its result as text.
+
+        ``timeout_s`` is the slice the turn has left, computed by the loop from its own deadline.
+        Optional so a test executor need not care about clocks; when omitted, an implementation
+        uses whatever ceiling it was built with.
+
+        The parameter exists because a budget that is only checked *between* steps would not bound
+        a single slow call — and a turn whose first tool call hangs forever would never reach the
+        next checkpoint to notice. The check and the timeout are the same budget applied at the
+        two places a step can consume time.
+        """
         ...
 
 
@@ -352,9 +364,17 @@ class AgentLoop:
             raise DeadlineExceededError(self._deadline.budget_s, self._deadline.spent_s)
 
     async def _call(self, call: ToolCallRequest) -> str:
-        """Run one tool, turning a transport failure into something the model can read."""
+        """Run one tool, turning a transport failure into something the model can read.
+
+        The slice granted here is what makes the deadline bound a *single* call rather than only
+        the gaps between them: without it, one tool that never returns would hold the turn open
+        forever, since the next checkpoint is never reached. `Deadline.grant` raises when nothing
+        is left, which the caller's `except` below reports as a failed call — and the turn ends at
+        the following checkpoint with the honest reason.
+        """
+        granted = self._deadline.grant() if self._deadline is not None else None
         try:
-            return await self._executor.call(call.name, dict(call.arguments))
+            return await self._executor.call(call.name, dict(call.arguments), timeout_s=granted)
         except Exception as exc:
             # Deliberately broad. The alternative to catching here is a traceback, which ends
             # the turn with nothing the model can act on — and the failures worth catching are

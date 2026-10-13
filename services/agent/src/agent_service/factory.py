@@ -116,13 +116,25 @@ class McpToolExecutor:
         self._client = client
         self._timeout_s = timeout_s
 
-    async def call(self, name: str, arguments: dict[str, Any]) -> str:
+    async def call(
+        self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
+    ) -> str:
         """Call a tool and render the outcome as text, failures included.
 
         What the loop needs: a model must be shown what went wrong, so an error is a sentence in
         the transcript rather than an exception that aborts the turn.
+
+        ``timeout_s`` is the slice the *turn* has left, and it wins over the ceiling this adapter
+        was built with when it is smaller. The construction-time ceiling bounds one call in
+        isolation; the turn's budget bounds the whole turn, and a call that could outlast it would
+        make the turn's deadline meaningless — the last call would run past it and the reason
+        reported would be about the call rather than about the turn.
+
+        Checked with ``is None`` rather than truthiness, because ``0.0`` is a legitimate slice for
+        a turn with nothing left and must not be silently replaced by the larger default.
         """
-        result = await self._client.call(name, arguments, timeout_s=self._timeout_s)
+        effective = self._timeout_s if timeout_s is None else min(timeout_s, self._timeout_s)
+        result = await self._client.call(name, arguments, timeout_s=effective)
         return result.as_model_text()
 
     async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:

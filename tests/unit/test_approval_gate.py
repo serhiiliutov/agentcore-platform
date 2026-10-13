@@ -82,7 +82,14 @@ class SpyExecutor:
         #: distinct from ``raises``, which models a transport that never delivered the call.
         self.reports_failure = False
 
-    async def call(self, name: str, arguments: dict[str, Any]) -> str:
+    async def call(
+        self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
+    ) -> str:
+        """The loop's variant. ``timeout_s`` is the slice the turn had left, when it had a budget.
+
+        Accepted and ignored here: this suite is about the approval gate, not about the clock, and
+        the parameter is part of the executor protocol so the spy has to match its shape.
+        """
         if self.raises is not None:
             raise self.raises
         self.calls.append((name, arguments))
