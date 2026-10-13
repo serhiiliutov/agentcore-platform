@@ -37,12 +37,26 @@ and in the stage list of `MASTER-PLAN.md`.
 
 | Check | Command | Result |
 |---|---|---|
-| Lint is clean | `python -m devtasks lint` | **pass** — `All checks passed!` (one `RUF002` en dash in a docstring, rewritten as prose) |
+| Lint is clean | `python -m devtasks lint` | **pass at the time of the check** — see the correction below |
 | Types are clean | `python -m devtasks typecheck` | **pass** — `Success: no issues found in 28 source files` |
 | Baseline migration applies | `python -m devtasks migrate` | **pass** — `Running upgrade -> 0001, baseline schema` |
 | It reverses | `python -m devtasks downgrade base` | **pass** — `Running downgrade 0001 -> , baseline schema` |
 | And re-applies | `python -m devtasks migrate` | **pass** — round-trip complete |
 | All seven tables are created | autogenerate output | **pass** — `sessions`, `messages`, `approvals`, `user_facts`, `idempotency_keys`, `provider_settings`, `traces` |
+
+### Correction: the lint claim above was premature
+
+The check reported `All checks passed!`, and that was true of the tree as it stood. It
+was then **not re-run after the Alembic files were generated**, and those files were
+committed carrying four findings: an unused `sqlalchemy.pool` import, two unsorted
+import blocks, and trailing whitespace. `ruff format` had also never been run over the
+tree — `ruff check` and `ruff format` enforce different rules, so 25 files were
+check-clean but not format-clean.
+
+Both were fixed in commit `3e9d4ea`, separately from any feature work so the noise did
+not hide inside a feature commit. The process change is the point: **generate, format,
+lint, then commit** — a gate run before a code generator is invoked says nothing about
+the files that generator produces.
 
 ## Findings worth recording
 
