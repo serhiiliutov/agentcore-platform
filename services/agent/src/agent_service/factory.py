@@ -39,9 +39,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from agent_service.agent.execution import ToolCallFailedError, WriteExecutor
 from agent_service.agent.gate import ApprovalGate
 from agent_service.agent.handler import InvocationHandlerFactory, as_pending_approval
+from agent_service.agent.inflight import InflightRegistry
 from agent_service.agent.loop import LoopLimits
 from agent_service.api.app import InvocationHandler, create_app
 from agent_service.api.approval_routes import DecisionConflictError, DecisionHandler
+from agent_service.api.cancel_routes import CancelHandler, CancelResult
 from agent_service.api.models import InvocationRequest, InvocationResponse, PendingApproval
 from agent_service.api.ui_routes import PendingApprovalListing
 from agent_service.config import Settings, get_settings
@@ -190,6 +192,7 @@ def build_invocation_handler(
     runtime: Runtime,
     sessions: sessionmaker[Session],
     settings: Settings,
+    runs: InflightRegistry,
 ) -> InvocationHandler:
     """Adapt the loop factory into the one-argument handler the route expects.
 
@@ -222,6 +225,9 @@ def build_invocation_handler(
             executor=runtime.require_executor(),
             limits=limits,
             trace_dir=settings.trace_dir,
+            # The same registry the cancel route reads, so a run this starts is one the endpoint
+            # can find. Two registries would mean a cancel that always reports nothing running.
+            runs=runs,
         )
         with sessions() as session:
             response = await factory(request, session)
@@ -290,6 +296,34 @@ def build_pending_listing(
     return listing
 
 
+def build_cancel_handler(*, runs: InflightRegistry) -> CancelHandler:
+    """Turn a cancel request into a token being set on a running turn.
+
+    The whole endpoint, and it is short because the design put the work where it belongs: the
+    registry owns the scoping rule and the token owns the stopping condition. This only has to
+    report what happened in words a person clicked for.
+
+    ``None`` for "nothing was running" rather than an empty result, so the route can answer 404.
+    That distinction is the point of the route's separate 501: a caller must be able to tell a
+    finished turn from an unwired registry.
+    """
+
+    async def cancel(session_id: str, user_id: str) -> CancelResult | None:
+        run = runs.cancel_session(session_id, user_id=user_id)
+        if run is None:
+            return None
+        return CancelResult(
+            session_id=session_id,
+            state="stopping",
+            detail=(
+                "The turn has been asked to stop at its next step. A step already running — "
+                "including a write — is allowed to finish."
+            ),
+        )
+
+    return cancel
+
+
 def build_lifespan(settings: Settings, runtime: Runtime) -> Any:
     """Open the MCP connection for the life of the process.
 
@@ -333,16 +367,26 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     sessions = create_session_factory(engine)
     provider = build_provider(resolved)
     runtime = Runtime()
+    # One registry for the process, created here rather than inside a handler, because the
+    # invocation handler writes to it and the cancel handler reads from it — and a per-request
+    # instance would mean the reader never saw what the writer wrote.
+    runs = InflightRegistry()
 
     app = create_app(
         resolved,
         invocation_handler=build_invocation_handler(
-            provider=provider, runtime=runtime, sessions=sessions, settings=resolved
+            provider=provider,
+            runtime=runtime,
+            sessions=sessions,
+            settings=resolved,
+            runs=runs,
         ),
         decision_handler=build_decision_handler(runtime=runtime, sessions=sessions),
         pending_approvals=build_pending_listing(sessions=sessions),
+        cancel_handler=build_cancel_handler(runs=runs),
         lifespan=build_lifespan(resolved, runtime),
     )
     app.state.engine = engine
     app.state.runtime = runtime
+    app.state.runs = runs
     return app
