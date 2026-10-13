@@ -1,6 +1,6 @@
 # Stage 8 — The agent loop and the structural approval gate
 
-* **Status:** in progress (loop and gate complete and proven; decision routes outstanding)
+* **Status:** complete
 * **Started:** 2026-10-13
 * **Estimate:** agent 8–10 h · human 3 days
 * **Depends on:** Stage 2 (approvals schema), Stage 4 (the ledger), Stage 5 (the server), Stage 7 (providers)
@@ -21,7 +21,10 @@ requirement the assignment is scored on.
 | `agent/loop.py` | One turn: chat, dispatch, feed back, stop on a proposal or the budget |
 | `agent/execution.py` | **The only code that can perform a write** |
 | `agent/handler.py` | Translation to the AgentCore contract + the per-invocation factory |
+| `agent/gate.py` | The adapter: decide, then execute only if approved |
+| `api/approval_routes.py` | `POST /invocations/approvals/{id}/decide`, injectable like `/invocations` |
 | `tests/unit/test_approval_gate.py` | 22 tests proving the gate |
+| `tests/unit/test_decision_route.py` | 13 tests over the route and the adapter's seam |
 
 ## The four claims, and where each is enforced
 
@@ -38,7 +41,7 @@ The single most important line in this stage is that the idempotency key is gene
 `ApprovalRepository.propose`, **not** in the executor:
 
 ```python
-client_request_id = client_request_id or f"appr-{uuid.uuid4().hex}"
+client_request_id=client_request_id or f"appr-{uuid.uuid4().hex}"
 ```
 
 Because the key exists before anyone approves anything, a crash between approval and execution
@@ -54,7 +57,7 @@ made.
 | Lint is clean | `python -m devtasks lint` | **pass** |
 | Formatting is clean | `python -m devtasks fmt` | **pass** |
 | Types are clean | `python -m devtasks typecheck` | **pass** — `66 source files` |
-| All tests | `python -m devtasks test-unit` | **pass** — `219 passed` |
+| All tests | `python -m devtasks test-unit` | **pass** — `232 passed` |
 | A proposed write never reaches the transport | `test_a_write_the_model_requests_is_not_called` | **pass** |
 | Nothing but an approved row can execute | `test_a_pending_write_cannot_be_executed` | **pass** |
 | The stored payload is what is sent | `test_execution_sends_the_stored_payload` | **pass** |
@@ -62,7 +65,10 @@ made.
 | A second execution is refused | `test_executing_twice_does_not_call_the_tool_twice` | **pass** |
 | A replay does not claim a new ticket | `test_a_replay_is_reported_without_claiming_a_new_ticket` | **pass** |
 | A refusal is a state, not a traceback | `test_a_failing_write_is_recorded_not_raised` | **pass** |
-| **Decision routes** (`POST /approvals/{id}/decide`) | — | **outstanding** |
+| Declining does not reach the transport | `test_declining_does_not_execute` | **pass** |
+| An unwired decision route says so | `test_the_route_exists_even_with_no_handler` | **pass** |
+| A blocked decision is a 409, not a 400 | `test_a_conflict_is_a_409_rather_than_a_400` | **pass** |
+| The whole path: propose, approve, execute | `test_execution_sends_the_stored_payload_through_the_gate` | **pass** |
 
 ## Findings worth recording
 
@@ -96,14 +102,16 @@ made.
 
 The gate is structural. There is one file that can write, it cannot be reached without an
 approved row, and the row carries everything needed to execute — so "approve one thing, run
-another" is impossible rather than merely discouraged. 219 tests, all four gates green.
+another" is impossible rather than merely discouraged. 232 tests, all four gates green.
 
 ## Carried forward
 
-* **The decision routes** — `POST /invocations/{session}/approvals/{id}/decide` and the
-  execute path — are the remaining piece of this stage. `WriteExecutor` and
-  `ApprovalRepository` are written and tested; what is missing is the HTTP surface and its
-  contract tests.
-* **Stage 9 (memory)** supplies the `history` the loop already accepts, and the session row
-  the approval foreign key requires. The `InvocationHandlerFactory` currently mints a session
-  id without persisting a `ChatSession`, which Stage 9 must fix before the loop runs in anger.
+* **Stage 9 (memory) must persist the session before a write can be proposed.**
+  `InvocationHandlerFactory` currently mints a session id without inserting a `ChatSession`
+  row, and `approvals.session_id` is a foreign key onto `sessions.id` with
+  `PRAGMA foreign_keys=ON`. So the first proposal in a fresh session would fail with a foreign
+  key violation. This is found and recorded rather than left for the integration test to
+  discover, and it is the first thing Stage 9 should fix.
+* **Stage 11 (web UI)** needs the decision route plus a list of pending proposals. The route
+  exists; the list is an endpoint the UI stage adds, and `ApprovalRepository.pending` is
+  already written and tested for it.
