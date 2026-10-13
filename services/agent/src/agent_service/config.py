@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     mcp_port: int = Field(default=8081, ge=1, le=65535)
     #: Shared secret this service presents to the MCP server over HTTP.
     mcp_token: SecretStr | None = None
+    #: How to launch the MCP server when the transport is ``stdio``. A single string
+    #: that the client splits, because that is what an operator writes in a compose
+    #: file, and requiring a JSON array for a two-word command would be worse.
+    mcp_stdio_command: str = "python -m ticketing_mcp"
+    #: Name the server is expected to report. Checked after initialize so a
+    #: misconfigured command fails with a clear message instead of at the first call.
+    mcp_expected_server_name: str = "ticketing"
 
     # --- Provider credentials (all optional) -------------------------------
     anthropic_api_key: SecretStr | None = None
