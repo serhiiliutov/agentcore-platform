@@ -41,7 +41,7 @@ The single most important line in this stage is that the idempotency key is gene
 `ApprovalRepository.propose`, **not** in the executor:
 
 ```python
-client_request_id=client_request_id or f"appr-{uuid.uuid4().hex}"
+client_request_id = client_request_id or f"appr-{uuid.uuid4().hex}"
 ```
 
 Because the key exists before anyone approves anything, a crash between approval and execution
