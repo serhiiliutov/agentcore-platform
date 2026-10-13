@@ -184,12 +184,18 @@ def downgrade(extra: Sequence[str] = ()) -> int:
 
 
 def revision(extra: Sequence[str] = ()) -> int:
-    """Autogenerate a migration: `revision "add approval ttl"`."""
+    """Autogenerate a migration.
+
+    Arguments are forwarded to ``alembic revision --autogenerate`` verbatim, so both
+    forms work::
+
+        devtasks revision -m "add approval ttl"
+        devtasks revision --rev-id 0002 -m "add retry ledger"
+    """
     if not extra:
-        raise TaskError('a message is required, e.g. devtasks revision "add approvals"')
-    message = " ".join(extra)
+        raise TaskError('a message is required, e.g. devtasks revision -m "add approvals"')
     return run(
-        [sys.executable, "-m", "alembic", "revision", "--autogenerate", "-m", message],
+        [sys.executable, "-m", "alembic", "revision", "--autogenerate", *extra],
         cwd=AGENT_DIR,
     )
 
