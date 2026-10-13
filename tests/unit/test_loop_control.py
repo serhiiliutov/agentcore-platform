@@ -22,6 +22,7 @@ from typing import Any, cast
 import pytest
 
 from agent_service.agent.budget import CancelToken, Deadline
+from agent_service.agent.handler import STOP_REASON_MAP, to_invocation_response
 from agent_service.agent.loop import AgentLoop, LoopLimits, TurnResult
 from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.providers.base import (
@@ -285,3 +286,54 @@ async def test_cancelled_and_timed_out_are_not_the_same_state() -> None:
     # Distinctness is established by naming both rather than by comparing them: the two are
     # distinct literals, so a comparison here is a check mypy has already made statically, and
     # it rejects the redundancy. Naming each is the assertion that carries information.
+
+
+# --- the contract's view of the two new stop reasons --------------------------
+
+
+def test_every_reason_the_loop_can_produce_has_a_translation() -> None:
+    """A missing entry would report the turn as ``error``, which is a lie about why it stopped.
+
+    This is the failure the map's comment warns about and that nothing catches by inspection: a
+    key that does not match what the loop emits falls through to ``UNMAPPED_STOP_REASON``, so a
+    turn that was cancelled or timed out would reach the wire claiming to have failed.
+    """
+    reasons_the_loop_can_emit = {
+        "end_turn",
+        "proposed",
+        "max_steps",
+        "timed_out",
+        "cancelled",
+    }
+
+    assert reasons_the_loop_can_emit <= set(STOP_REASON_MAP), (
+        "a stop reason the loop can emit has no translation and would be reported as an error"
+    )
+
+
+def test_a_timed_out_turn_is_reported_as_a_deadline_not_an_error() -> None:
+    """The word the caller sees is the contract's, and giving up is not breaking.
+
+    ``timed_out`` is the loop's own name for what happened to it; ``deadline`` is the
+    contract's vocabulary for what a caller should do about it. Mapping one onto the other is
+    the whole reason this table exists — and the case worth pinning, because the two names
+    differ and a reader could reasonably assume they match.
+    """
+    result = TurnResult(text="I gave up on this turn", stop_reason="timed_out")
+
+    response = to_invocation_response(result, session_id="sess-1")
+
+    assert response.stop_reason == "deadline"
+    # Not asserted against "error": the two are distinct literals, so mypy has already proven
+    # they differ and rejects the comparison as redundant. Naming the expected value is the
+    # assertion that carries information — and "deadline" is precisely the point, since an
+    # unmapped reason would have produced "error" instead.
+
+
+def test_a_cancelled_turn_reaches_the_wire_as_cancelled() -> None:
+    """A decision somebody made, reported as such rather than folded into an error."""
+    result = TurnResult(text="I stopped because the run was cancelled", stop_reason="cancelled")
+
+    response = to_invocation_response(result, session_id="sess-1")
+
+    assert response.stop_reason == "cancelled"

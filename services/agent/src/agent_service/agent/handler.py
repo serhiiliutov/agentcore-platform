@@ -51,11 +51,16 @@ DEFAULT_TRACE_DIR = Path("traces")
 #: How the loop's stop reasons map onto the contract's. A table rather than a chain of ifs so
 #: an unmapped reason is visible as a missing key rather than as a silent fall-through — and
 #: the fallback below is deliberate and named.
+#:
+#: The keys are the *loop's* vocabulary and the values are the *contract's*, which is why
+#: ``timed_out`` becomes ``deadline``: the loop names what happened to it, and the wire names
+#: what a caller should do about it. Every key here is a reason the loop can actually produce —
+#: a table entry for a reason nothing emits is a translation nothing tests.
 STOP_REASON_MAP: dict[str, StopReason] = {
     "end_turn": "completed",
     "proposed": "awaiting_approval",
     "max_steps": "max_steps",
-    "deadline": "deadline",
+    "timed_out": "deadline",
     "cancelled": "cancelled",
 }
 
