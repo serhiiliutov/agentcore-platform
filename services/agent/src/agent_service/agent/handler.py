@@ -22,7 +22,6 @@ stop reason cannot reach the wire unnamed.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
@@ -35,6 +34,7 @@ from agent_service.api.models import (
 )
 from agent_service.db.models.approval import Approval
 from agent_service.db.repositories.approvals import ApprovalRepository
+from agent_service.db.repositories.sessions import SessionRepository
 from agent_service.providers.base import Message, ModelProvider
 from agent_service.tools.registry import ToolRegistry
 
@@ -72,6 +72,26 @@ Three rules, and they are not stylistic:
 3. If a tool fails, say what failed. Do not retry the same call unchanged and do not claim
    the action succeeded.
 """
+
+
+def _turn_messages(prompt: str, result: TurnResult) -> tuple[Message, ...]:
+    """The two sides of one turn, ready to store.
+
+    Only the prompt and the final answer are recorded, not the intermediate tool calls. Storing
+    those would make memory a transcript, and this service's memory is deliberately a
+    conversation: the model does not need to be shown its own past searches to answer the next
+    question, and carrying them would grow every prompt with text that has already been acted
+    on. The tool calls are reported to the *caller* in the response, which is where they belong.
+
+    An assistant reply that is empty — the case when the turn ended by proposing a write — is
+    stored as it is rather than skipped, because the next turn should see that the agent was
+    asked something and answered with a proposal rather than believing the question was never
+    asked.
+    """
+    return (
+        Message(role="user", content=prompt),
+        Message(role="assistant", content=result.text),
+    )
 
 
 def to_invocation_response(
@@ -165,15 +185,33 @@ class InvocationHandlerFactory:
         self,
         request: InvocationRequest,
         session: Session,
-        history: Sequence[Message] = (),
     ) -> InvocationResponse:
         """Run one invocation.
 
         ``session`` is supplied by the caller rather than opened here, so the transaction
         boundary stays with the layer that owns it — approve-then-execute must be atomic, and
         only the caller knows where that boundary is.
+
+        This method, not its caller, now owns conversation memory. It used to take a ``history``
+        argument and Stage 8 passed nothing; the fix is not for callers to start building
+        history but for this layer to do it, because every caller would otherwise have to
+        remember to, and one that forgot would silently produce a stateless agent that still
+        looked like it was working.
+
+        Order matters and is not incidental: ``ensure`` runs before anything session-scoped,
+        because the session row is what a proposed write's foreign key points at. Without it the
+        first write in a fresh conversation fails on a constraint — a certain failure, not a
+        possible one, and exactly the gap Stage 8 recorded.
+
+        The turn is stored after the loop returns, and the assistant's reply with it, so the next
+        turn of the same conversation sees both sides. A turn that ended by proposing a write is
+        stored too: the proposal is part of what happened.
         """
         session_id = request.session_id or f"sess-{uuid.uuid4().hex}"
+        sessions = SessionRepository(session)
+        sessions.ensure(session_id, user_id=request.user_id)
+        history = sessions.history(session_id, user_id=request.user_id)
+
         loop = AgentLoop(
             provider=self._provider,
             tools=self._tools,
@@ -186,4 +224,10 @@ class InvocationHandlerFactory:
         )
 
         result = await loop.run(request.prompt, history=history)
+
+        sessions.append_all(
+            session_id,
+            user_id=request.user_id,
+            messages=_turn_messages(request.prompt, result),
+        )
         return to_invocation_response(result, session_id=session_id)
