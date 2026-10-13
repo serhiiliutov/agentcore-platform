@@ -170,11 +170,15 @@ class AgentLoop:
 
         try:
             for step in range(1, self._limits.max_steps + 1):
-                steps = step
                 # Checked *between* steps, never inside one. A step already running is never torn
                 # down, which is what keeps a write that is executing able to finish and be
                 # recorded — see the module docstring on why that matters.
                 self._checkpoint()
+                # Counted only once the step is actually going to run. Incrementing before the
+                # checkpoint would report a step that was announced and then abandoned — and a
+                # trace claiming a round trip that never happened is worse than no count, because
+                # it is the number somebody would use to explain a slow turn.
+                steps = step
 
                 turn = await self._provider.chat(
                     messages,
