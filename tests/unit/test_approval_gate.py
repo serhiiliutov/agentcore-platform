@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 import agent_service.db.models  # noqa: F401 - registers every table on Base.metadata
-from agent_service.agent.execution import WriteExecutor
+from agent_service.agent.execution import ToolCallFailedError, WriteExecutor
 from agent_service.agent.loop import AgentLoop, LoopLimits
 from agent_service.db.base import Base, create_session_factory, register_sqlite_pragmas
 from agent_service.db.models.approval import ApprovalState
@@ -78,11 +78,31 @@ class SpyExecutor:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.reply = reply
         self.raises: Exception | None = None
+        #: When set, ``call_checked`` reports a *completed* call that the backend refused —
+        #: distinct from ``raises``, which models a transport that never delivered the call.
+        self.reports_failure = False
 
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
         if self.raises is not None:
             raise self.raises
         self.calls.append((name, arguments))
+        return self.reply
+
+    async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:
+        """The writer's variant: records the call, then raises if the backend refused it.
+
+        The two methods exist because one result has two readers. ``call`` renders a failure as
+        text because the loop has to *show* a model what went wrong; the writer must not be able
+        to read that same text as a success, so the adapter it is given raises instead. Without
+        this method the spy does not satisfy what the writer asks for, which is how the tests
+        caught the change — and ``reports_failure`` is what lets them prove a refused write ends
+        up ``failed`` rather than ``executed``.
+        """
+        if self.raises is not None:
+            raise self.raises
+        self.calls.append((name, arguments))
+        if self.reports_failure:
+            raise ToolCallFailedError(self.reply)
         return self.reply
 
     @property
@@ -652,3 +672,64 @@ class _Published:
     @property
     def tools(self) -> tuple[McpTool, ...]:
         return self._tools
+
+
+async def test_a_reported_failure_is_not_recorded_as_executed(
+    session: Session, approvals: ApprovalRepository, executor: SpyExecutor
+) -> None:
+    """The regression this suite was missing, and the reason ``call_checked`` exists.
+
+    Every other failure test here scripted a *raised* exception — a transport that never
+    delivered the call. This one scripts the harder case: the call arrived, the backend answered,
+    and the answer was a failure. The tool executor's loop-facing ``call`` renders that as the
+    text ``ERROR: ...``, and the writer used to read the same string and mark the row
+    ``executed``, because nothing in the value said otherwise.
+
+    So the row claimed a ticket existed that did not. It was found by running the assembled
+    service: an approved ``create_ticket`` against a healthy mock came back with a get-ticket
+    error and a state of ``executed``, and the ``ERROR:`` prefix in the detail was the adapter's
+    own marker — which is how the lost signal was identified.
+    """
+    approval = approvals.propose(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        action="create_ticket",
+        payload={"title": "x"},
+        client_request_id="key-1",
+    )
+    approvals.decide(approval.id, user_id=USER_ID, approved=True)
+    executor.reports_failure = True
+    executor.reply = "No ticket with that id exists. Check the id before retrying."
+
+    outcome = await WriteExecutor(executor=executor, approvals=approvals).execute(
+        approval.id, user_id=USER_ID
+    )
+
+    assert not outcome.succeeded, "a refusal must never be reported as a completed write"
+    assert outcome.outcome == "failed"
+    assert "No ticket with that id exists" in outcome.detail
+    assert _state_of(approvals, approval.id) == ApprovalState.FAILED.value
+
+
+async def test_a_reported_failure_does_not_leave_the_row_approved(
+    session: Session, approvals: ApprovalRepository, executor: SpyExecutor
+) -> None:
+    """The consequence that matters operationally: an approved row is retried by every sweep.
+
+    Left ``approved``, a write that failed would be re-attempted indefinitely, which is how one
+    refusal becomes a stream of duplicate attempts.
+    """
+    approval = approvals.propose(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        action="create_ticket",
+        payload={"title": "x"},
+    )
+    approvals.decide(approval.id, user_id=USER_ID, approved=True)
+    executor.reports_failure = True
+    writer = WriteExecutor(executor=executor, approvals=approvals)
+
+    await writer.execute(approval.id, user_id=USER_ID)
+
+    with pytest.raises(ApprovalTransitionError):
+        await writer.execute(approval.id, user_id=USER_ID)

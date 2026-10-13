@@ -34,12 +34,39 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from agent_service.db.models.approval import Approval, ApprovalState
 from agent_service.db.repositories.approvals import ApprovalRepository
 
-from .loop import ToolExecutor
+
+class ToolCallFailedError(RuntimeError):
+    """A tool call completed, and the backend answered with a failure.
+
+    Distinct from a transport exception, and the distinction is worth keeping: a call that never
+    arrived and a call that arrived and was refused are different facts about the world. What they
+    share is that the write did not happen, which is the only thing the writer acts on — so both
+    reach it as an exception rather than as text it has to interpret.
+    """
+
+
+class WriteToolExecutor(Protocol):
+    """What the writer needs from a tool executor, which is narrower than the loop's.
+
+    The loop wants a sentence it can show the model, failures included, so its ``ToolExecutor``
+    returns ``str``. The writer must not be able to mistake a failure for a success, and a ``str``
+    return makes that mistake possible — which is not hypothetical: this project had a
+    ``McpToolExecutor.call`` that rendered a failure as the text ``ERROR: ...``, and a writer that
+    recorded the resulting ticket as ``executed`` because it had nothing else to go on.
+
+    So the writer asks for a call that raises instead. The two readers of one result then cannot
+    disagree about whether it succeeded, because only one of them is given a value to compare.
+    """
+
+    async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:
+        """Call a tool and return its text, raising `ToolCallFailedError` if it failed."""
+        ...
+
 
 #: Substrings by which Stage 5's MCP server signals that a write was not performed afresh.
 #: Read from its own text rather than re-derived, because the server knows first-hand whether
@@ -72,7 +99,7 @@ class ExecutionResult:
 class WriteExecutor:
     """Carries out an approved write, once."""
 
-    def __init__(self, *, executor: ToolExecutor, approvals: ApprovalRepository) -> None:
+    def __init__(self, *, executor: WriteToolExecutor, approvals: ApprovalRepository) -> None:
         self._executor = executor
         self._approvals = approvals
 
@@ -85,8 +112,11 @@ class WriteExecutor:
         """
         approval = self._approvals.claim_for_execution(approval_id, user_id=user_id)
 
+        # A failure is caught here and becomes a state, per the module docstring. Note that this
+        # covers BOTH an exception and a reported failure, because ``call_checked`` raises the
+        # latter — which is what stopped a refused write from being recorded as executed.
         try:
-            text = await self._executor.call(approval.action, self._arguments(approval))
+            text = await self._executor.call_checked(approval.action, self._arguments(approval))
         except Exception as exc:
             return self._fail(approval, f"{type(exc).__name__}: {exc}")
 

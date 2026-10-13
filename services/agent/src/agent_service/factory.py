@@ -36,7 +36,7 @@ from fastapi import FastAPI
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from agent_service.agent.execution import WriteExecutor
+from agent_service.agent.execution import ToolCallFailedError, WriteExecutor
 from agent_service.agent.gate import ApprovalGate
 from agent_service.agent.handler import InvocationHandlerFactory, as_pending_approval
 from agent_service.agent.loop import LoopLimits
@@ -115,7 +115,30 @@ class McpToolExecutor:
         self._timeout_s = timeout_s
 
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
+        """Call a tool and render the outcome as text, failures included.
+
+        What the loop needs: a model must be shown what went wrong, so an error is a sentence in
+        the transcript rather than an exception that aborts the turn.
+        """
         result = await self._client.call(name, arguments, timeout_s=self._timeout_s)
+        return result.as_model_text()
+
+    async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:
+        """Call a tool and raise if it reported a failure.
+
+        What the writer needs, and the split exists because one result has two readers with
+        opposite requirements. The loop's ``call`` above renders a failure as the text
+        ``ERROR: ...``, and the write path used to read that same string — so a refused write was
+        recorded as ``executed``, since nothing in the value said otherwise. Raising is what makes
+        the two readers unable to disagree: only one of them is given a value to compare.
+
+        ``ToolCallFailedError`` rather than a bare ``RuntimeError`` so the writer's log and the
+        approval row distinguish "the backend refused this" from "the transport broke", which are
+        different things for whoever reads the row afterwards.
+        """
+        result = await self._client.call(name, arguments, timeout_s=self._timeout_s)
+        if result.is_error:
+            raise ToolCallFailedError(result.message)
         return result.as_model_text()
 
 
