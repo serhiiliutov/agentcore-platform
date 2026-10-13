@@ -112,8 +112,8 @@ def load_app(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FastAPI]:
 
     Usage::
 
-        app = load_app()                                       # default, healthy
-        app = load_app(FLAKY="1", FLAKY_RATE="1.0")            # every call fails
+        app = load_app()  # default, healthy
+        app = load_app(FLAKY="1", FLAKY_RATE="1.0")  # every call fails
     """
 
     def _load(**env: str) -> FastAPI:

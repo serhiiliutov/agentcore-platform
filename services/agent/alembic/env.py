@@ -21,13 +21,12 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import Engine, pool
-
-from agent_service.config import get_settings
-from agent_service.db.base import Base
+from sqlalchemy import Engine
 
 # Importing the package is what registers every table on Base.metadata.
 import agent_service.db.models  # noqa: F401  (imported for its side effect)
+from agent_service.config import get_settings
+from agent_service.db.base import Base
 
 config = context.config
 

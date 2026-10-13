@@ -26,9 +26,7 @@ def test_health_is_reachable_without_a_credential(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
-def test_health_reports_the_seeded_inventory(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_health_reports_the_seeded_inventory(client: TestClient, mock: MockContract) -> None:
     """Health doubles as a cheap way to confirm the seed is loaded."""
     body = client.get("/health").json()
 
@@ -43,18 +41,14 @@ def test_search_without_a_key_is_unauthorized(client: TestClient) -> None:
     assert response.json()["error"] == "unauthorized"
 
 
-def test_search_with_a_wrong_key_is_unauthorized(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_search_with_a_wrong_key_is_unauthorized(client: TestClient, mock: MockContract) -> None:
     response = client.get("/tickets", headers=mock.auth_headers("not-the-key"))
 
     assert response.status_code == 401
     assert response.json()["error"] == "unauthorized"
 
 
-def test_search_with_the_right_key_succeeds(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_search_with_the_right_key_succeeds(client: TestClient, mock: MockContract) -> None:
     response = client.get("/tickets", headers=mock.auth_headers())
 
     assert response.status_code == 200
@@ -68,9 +62,7 @@ def test_the_401_body_says_which_header_is_missing(client: TestClient) -> None:
     assert "X-API-Key" in body["detail"]
 
 
-def test_the_header_name_is_case_insensitive(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_the_header_name_is_case_insensitive(client: TestClient, mock: MockContract) -> None:
     """HTTP header names are case-insensitive; clients must not be punished."""
     response = client.get("/tickets", headers={"x-api-key": mock.api_key})
 

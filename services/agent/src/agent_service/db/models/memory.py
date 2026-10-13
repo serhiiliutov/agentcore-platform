@@ -70,4 +70,6 @@ class UserFact(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
     def __repr__(self) -> str:
-        return f"UserFact(user_id={self.user_id!r}, key={self.key!r}, expires_at={self.expires_at!r})"
+        return (
+            f"UserFact(user_id={self.user_id!r}, key={self.key!r}, expires_at={self.expires_at!r})"
+        )

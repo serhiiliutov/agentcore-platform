@@ -89,9 +89,7 @@ def test_a_new_ticket_gets_a_created_and_updated_timestamp(
     assert str(created["created_at"]).endswith("Z")
 
 
-def test_ticket_ids_increment_monotonically(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_ticket_ids_increment_monotonically(client: TestClient, mock: MockContract) -> None:
     """Two creates produce two distinct ids, in order."""
     first = _create(client, mock)
     second = _create(client, mock, title="Second ticket")
@@ -100,9 +98,7 @@ def test_ticket_ids_increment_monotonically(
     assert second["id"] == "TCK-1026"
 
 
-def test_a_created_ticket_is_immediately_readable(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_a_created_ticket_is_immediately_readable(client: TestClient, mock: MockContract) -> None:
     """The create response is not a promise: the ticket is really there."""
     created = _create(client, mock)
 
@@ -112,9 +108,7 @@ def test_a_created_ticket_is_immediately_readable(
     assert fetched.json()["title"] == _VALID_TICKET["title"]
 
 
-def test_a_created_ticket_appears_in_search(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_a_created_ticket_appears_in_search(client: TestClient, mock: MockContract) -> None:
     before = _count(client, mock)
     _create(client, mock)
 
@@ -137,9 +131,7 @@ def test_the_same_payload_creates_two_distinct_tickets(
     assert first["title"] == second["title"]
 
 
-def test_a_too_short_title_is_rejected(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_a_too_short_title_is_rejected(client: TestClient, mock: MockContract) -> None:
     response = client.post(
         "/tickets", headers=mock.auth_headers(), json={**_VALID_TICKET, "title": "ab"}
     )
@@ -162,9 +154,7 @@ def test_a_missing_requester_is_rejected_without_touching_state(
     assert _count(client, mock) == before
 
 
-def test_an_unknown_priority_is_rejected(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_an_unknown_priority_is_rejected(client: TestClient, mock: MockContract) -> None:
     response = client.post(
         "/tickets",
         headers=mock.auth_headers(),
@@ -174,9 +164,7 @@ def test_an_unknown_priority_is_rejected(
     assert response.status_code == 422
 
 
-def test_commenting_appends_to_the_ticket(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_commenting_appends_to_the_ticket(client: TestClient, mock: MockContract) -> None:
     response = client.post(
         f"/tickets/{mock.ticket_with_comments}/comments",
         headers=mock.auth_headers(),
@@ -188,15 +176,11 @@ def test_commenting_appends_to_the_ticket(
     assert comment["author"] == "Aisha Khan"
     assert comment["id"] == "CMT-0001"
 
-    ticket = client.get(
-        f"/tickets/{mock.ticket_with_comments}", headers=mock.auth_headers()
-    ).json()
+    ticket = client.get(f"/tickets/{mock.ticket_with_comments}", headers=mock.auth_headers()).json()
     assert [c["body"] for c in ticket["comments"]][-1] == "Still cannot reach the drive."
 
 
-def test_commenting_touches_the_ticket_timestamp(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_commenting_touches_the_ticket_timestamp(client: TestClient, mock: MockContract) -> None:
     """So a comment resurfaces the ticket in the updated-at ordering."""
     before = client.get(
         f"/tickets/{mock.ticket_with_comments}", headers=mock.auth_headers()
@@ -208,15 +192,13 @@ def test_commenting_touches_the_ticket_timestamp(
         json={"author": "Aisha Khan", "body": "Any update?"},
     )
 
-    after = client.get(
-        f"/tickets/{mock.ticket_with_comments}", headers=mock.auth_headers()
-    ).json()["updated_at"]
+    after = client.get(f"/tickets/{mock.ticket_with_comments}", headers=mock.auth_headers()).json()[
+        "updated_at"
+    ]
     assert after >= before
 
 
-def test_commenting_uses_an_uppercased_ticket_id(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_commenting_uses_an_uppercased_ticket_id(client: TestClient, mock: MockContract) -> None:
     response = client.post(
         f"/tickets/{mock.ticket_with_comments.lower()}/comments",
         headers=mock.auth_headers(),
@@ -226,9 +208,7 @@ def test_commenting_uses_an_uppercased_ticket_id(
     assert response.status_code == 201
 
 
-def test_commenting_on_a_missing_ticket_is_a_404(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_commenting_on_a_missing_ticket_is_a_404(client: TestClient, mock: MockContract) -> None:
     response = client.post(
         "/tickets/TCK-9999/comments",
         headers=mock.auth_headers(),
@@ -239,9 +219,7 @@ def test_commenting_on_a_missing_ticket_is_a_404(
     assert "error" not in response.json()
 
 
-def test_an_empty_comment_body_is_rejected(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_an_empty_comment_body_is_rejected(client: TestClient, mock: MockContract) -> None:
     response = client.post(
         f"/tickets/{mock.ticket_with_comments}/comments",
         headers=mock.auth_headers(),
@@ -272,9 +250,7 @@ def test_updating_a_ticket_changes_only_the_fields_given(
     assert after["requester"] == before["requester"]
 
 
-def test_updating_with_nothing_to_change_is_a_400(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_updating_with_nothing_to_change_is_a_400(client: TestClient, mock: MockContract) -> None:
     """An empty update is the caller's mistake, and the mock says so."""
     response = client.patch(
         f"/tickets/{mock.ticket_without_comments}",
@@ -288,9 +264,7 @@ def test_updating_with_nothing_to_change_is_a_400(
     assert "error" not in body
 
 
-def test_updating_a_missing_ticket_is_a_404(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_updating_a_missing_ticket_is_a_404(client: TestClient, mock: MockContract) -> None:
     response = client.patch(
         "/tickets/TCK-9999", headers=mock.auth_headers(), json={"status": "closed"}
     )
@@ -298,9 +272,7 @@ def test_updating_a_missing_ticket_is_a_404(
     assert response.status_code == 404
 
 
-def test_reset_restores_the_seed_inventory(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_reset_restores_the_seed_inventory(client: TestClient, mock: MockContract) -> None:
     """The reset endpoint is what makes eval runs repeatable."""
     _create(client, mock)
 
@@ -320,9 +292,7 @@ def test_reset_discards_tickets_created_since_the_seed(
     assert client.get(f"/tickets/{created['id']}", headers=mock.auth_headers()).status_code == 404
 
 
-def test_reset_also_resets_the_id_counter(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_reset_also_resets_the_id_counter(client: TestClient, mock: MockContract) -> None:
     """Deterministic ids are what let an eval assert on a created ticket."""
     _create(client, mock)
     client.post("/admin/reset", headers=mock.auth_headers())

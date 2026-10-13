@@ -37,9 +37,7 @@ _VALID_TICKET: dict[str, str] = {
 }
 
 
-def test_a_flaky_read_never_succeeds(
-    flaky_client: TestClient, mock: MockContract
-) -> None:
+def test_a_flaky_read_never_succeeds(flaky_client: TestClient, mock: MockContract) -> None:
     response = flaky_client.get("/tickets", headers=mock.auth_headers())
 
     assert response.status_code in _CHAOS_STATUSES
@@ -64,8 +62,7 @@ def test_the_rate_limited_response_carries_retry_after(
     policy in Stage 4 reads this header rather than inventing a delay.
     """
     responses = [
-        flaky_client.get("/tickets", headers=mock.auth_headers())
-        for _ in range(_SAMPLE_SIZE)
+        flaky_client.get("/tickets", headers=mock.auth_headers()) for _ in range(_SAMPLE_SIZE)
     ]
     throttled = [r for r in responses if r.status_code == 429]
 
@@ -99,19 +96,14 @@ def test_the_sequence_is_deterministic_for_a_given_seed(
     for _ in range(2):
         client = TestClient(load_app(FLAKY="1", FLAKY_RATE="1.0", FLAKY_SEED="7"))
         sequences.append(
-            [
-                client.get("/tickets", headers=mock.auth_headers()).status_code
-                for _ in range(10)
-            ]
+            [client.get("/tickets", headers=mock.auth_headers()).status_code for _ in range(10)]
         )
 
     assert sequences[0] == sequences[1]
     assert set(sequences[0]) <= _CHAOS_STATUSES
 
 
-def test_health_is_never_affected_by_chaos(
-    flaky_client: TestClient, mock: MockContract
-) -> None:
+def test_health_is_never_affected_by_chaos(flaky_client: TestClient, mock: MockContract) -> None:
     """Health is unprotected, so it stays a usable liveness signal.
 
     This is what makes the compose health check trustworthy while the mock is in a
@@ -148,17 +140,13 @@ def test_a_rejected_write_does_not_reach_the_handler(
     """
     before = flaky_client.get("/health").json()["tickets"]
 
-    response = flaky_client.post(
-        "/tickets", headers=mock.auth_headers(), json=_VALID_TICKET
-    )
+    response = flaky_client.post("/tickets", headers=mock.auth_headers(), json=_VALID_TICKET)
 
     assert response.status_code in _CHAOS_STATUSES
     assert flaky_client.get("/health").json()["tickets"] == before
 
 
-def test_a_failure_body_is_json_not_html(
-    flaky_client: TestClient, mock: MockContract
-) -> None:
+def test_a_failure_body_is_json_not_html(flaky_client: TestClient, mock: MockContract) -> None:
     """A model is parsing this, so it must never be an HTML error page."""
     response = flaky_client.get("/tickets", headers=mock.auth_headers())
     body: JsonObject = response.json()

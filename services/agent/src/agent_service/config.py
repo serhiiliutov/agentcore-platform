@@ -26,9 +26,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Providers this service can drive. A Literal so a typo is a startup error.
-ProviderName = Literal[
-    "scripted", "replay", "anthropic", "openai", "openai_compatible", "bedrock"
-]
+ProviderName = Literal["scripted", "replay", "anthropic", "openai", "openai_compatible", "bedrock"]
 
 #: Transports for reaching the ticketing MCP server.
 McpTransport = Literal["stdio", "http"]

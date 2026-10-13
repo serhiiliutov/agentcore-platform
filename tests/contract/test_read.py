@@ -46,18 +46,14 @@ def _get(client: TestClient, mock: MockContract, ticket_id: str) -> JsonObject:
     return body
 
 
-def test_a_ticket_is_returned_with_its_full_record(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_a_ticket_is_returned_with_its_full_record(client: TestClient, mock: MockContract) -> None:
     ticket = _get(client, mock, mock.ticket_with_comments)
 
     assert ticket["id"] == mock.ticket_with_comments
     assert set(ticket) >= _EXPECTED_TICKET_FIELDS
 
 
-def test_the_detail_view_includes_comments(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_the_detail_view_includes_comments(client: TestClient, mock: MockContract) -> None:
     """The delta between the list view and the detail view is exactly this field."""
     ticket = _get(client, mock, mock.ticket_with_comments)
 
@@ -65,9 +61,7 @@ def test_the_detail_view_includes_comments(
     assert ticket["comments"], "TCK-1002 is seeded with a comment"
 
 
-def test_comments_carry_an_author_and_a_body(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_comments_carry_an_author_and_a_body(client: TestClient, mock: MockContract) -> None:
     comment = _get(client, mock, mock.ticket_with_comments)["comments"][0]
 
     assert comment["author"] == "Dana Whitfield"
@@ -85,9 +79,7 @@ def test_a_ticket_without_comments_returns_an_empty_list(
     assert ticket["comments"] == []
 
 
-def test_the_ticket_id_is_case_insensitive(
-    client: TestClient, mock: MockContract
-) -> None:
+def test_the_ticket_id_is_case_insensitive(client: TestClient, mock: MockContract) -> None:
     """A model that lower-cases an id must still find the ticket."""
     lowercased = _get(client, mock, mock.ticket_with_comments.lower())
 
