@@ -108,6 +108,7 @@ class SessionRepository:
         session row is the only shared state and a counter on it would need a lock to stay
         correct — while ``max`` is a single indexed read that cannot drift.
         """
+        call_name, call_id = _stored_call(message)
         moment = now or utc_now()
         stored = Message(
             session_id=session_id,
@@ -115,8 +116,8 @@ class SessionRepository:
             sequence=self._next_sequence(session_id),
             role=message.role,
             content=message.content,
-            tool_name=message.name,
-            tool_call_id=message.tool_call_id,
+            tool_name=call_name,
+            tool_call_id=call_id,
             created_at=moment,
         )
         self._session.add(stored)
@@ -130,14 +131,15 @@ class SessionRepository:
         start = self._next_sequence(session_id)
         stored: list[Message] = []
         for offset, message in enumerate(messages):
+            call_name, call_id = _stored_call(message)
             row = Message(
                 session_id=session_id,
                 user_id=user_id,
                 sequence=start + offset,
                 role=message.role,
                 content=message.content,
-                tool_name=message.name,
-                tool_call_id=message.tool_call_id,
+                tool_name=call_name,
+                tool_call_id=call_id,
             )
             self._session.add(row)
             stored.append(row)
@@ -158,6 +160,29 @@ class SessionRepository:
             select(func.max(Message.sequence)).where(Message.session_id == session_id)
         ).scalar_one_or_none()
         return (highest or 0) + 1
+
+
+def _stored_call(message: ProviderMessage) -> tuple[str | None, str | None]:
+    """The call identity to store against a message.
+
+    Two sources, and the order matters. A tool *result* names its call directly through
+    ``name``/``tool_call_id``. An assistant turn instead carries one or more `ToolCallRequest`s
+    in ``tool_calls`` and nothing in those two fields — which is how the flat ``messages`` row
+    ended up storing ``None`` for both and losing the link entirely.
+
+    Only the FIRST call is stored. The row has one pair of columns, so an assistant turn that
+    called three tools cannot be represented completely; keeping the first means a single-call
+    turn round-trips exactly, and a multi-call turn keeps enough to show what was called. The
+    alternative — one row per call — would make a turn's row count depend on the model's
+    behaviour, and reconstructing a single message from several rows at read time is the
+    complication the flat schema exists to avoid.
+    """
+    if message.name or message.tool_call_id:
+        return message.name, message.tool_call_id
+    if message.tool_calls:
+        first = message.tool_calls[0]
+        return first.name, first.id
+    return None, None
 
 
 def _to_provider(row: Message) -> ProviderMessage:
