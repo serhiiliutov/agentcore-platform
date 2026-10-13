@@ -22,6 +22,8 @@ stop reason cannot reach the wire unnamed.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -35,10 +37,16 @@ from agent_service.api.models import (
 from agent_service.db.models.approval import Approval
 from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.db.repositories.sessions import SessionRepository
+from agent_service.db.repositories.traces import TraceRepository
+from agent_service.observability import MODEL_TURN, Tracer
 from agent_service.providers.base import Message, ModelProvider
 from agent_service.tools.registry import ToolRegistry
 
 from .loop import AgentLoop, LoopLimits, ToolCallRecord as LoopCallRecord, ToolExecutor, TurnResult
+
+#: Where traces go when the factory is not told otherwise. Relative rather than absolute so a
+#: container can mount it, and overridable so a test never writes to the real directory.
+DEFAULT_TRACE_DIR = Path("traces")
 
 #: How the loop's stop reasons map onto the contract's. A table rather than a chain of ifs so
 #: an unmapped reason is visible as a missing key rather than as a silent fall-through — and
@@ -72,6 +80,17 @@ Three rules, and they are not stylistic:
 3. If a tool fails, say what failed. Do not retry the same call unchanged and do not claim
    the action succeeded.
 """
+
+
+def _trace_status(result: TurnResult) -> str:
+    """How the run should be described in the trace row.
+
+    Only a genuine ``error`` stop is a failed trace. A turn that ended by *proposing* a write is a
+    success — the agent did its job — and marking it as an error would make the approval workflow
+    show up in every failure listing, which is precisely the confusion the contract's own
+    ``stop_reason`` was designed to avoid at the HTTP layer.
+    """
+    return "error" if result.stop_reason == "error" else "ok"
 
 
 def _turn_messages(prompt: str, result: TurnResult) -> tuple[Message, ...]:
@@ -174,12 +193,18 @@ class InvocationHandlerFactory:
         executor: ToolExecutor,
         limits: LoopLimits | None = None,
         system_prompt: str = SYSTEM_PROMPT,
+        trace_dir: Path | None = None,
+        trace_warnings: Callable[[BaseException], None] | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
         self._executor = executor
         self._limits = limits or LoopLimits()
         self._system_prompt = system_prompt
+        self._trace_dir = trace_dir or DEFAULT_TRACE_DIR
+        #: Told when a trace could not be written. Passed in rather than only logged, so a caller
+        #: can count or alert on it; the tracer logs regardless.
+        self._trace_warnings = trace_warnings
 
     async def __call__(
         self,
@@ -223,11 +248,35 @@ class InvocationHandlerFactory:
             system_prompt=self._system_prompt,
         )
 
-        result = await loop.run(request.prompt, history=history)
+        tracer = Tracer(
+            trace_dir=self._trace_dir,
+            session_id=session_id,
+            user_id=request.user_id,
+            provider=type(self._provider).__name__,
+            on_write_failure=self._trace_warnings,
+        )
+
+        with tracer.span(MODEL_TURN, "invocation", prompt_chars=len(request.prompt)):
+            result = await loop.run(request.prompt, history=history)
 
         sessions.append_all(
             session_id,
             user_id=request.user_id,
             messages=_turn_messages(request.prompt, result),
         )
+
+        # Recorded after the turn is stored, so a trace row never describes a turn the
+        # conversation does not contain. If storing the turn raised, there would be no trace
+        # either — and a trace of a turn that was not saved would be the more misleading of the
+        # two artefacts.
+        TraceRepository(session).record(
+            tracer.finish(
+                status=_trace_status(result),
+                error=result.text if result.stop_reason == "error" else None,
+                model_turns=result.steps,
+                tool_calls=len(result.tool_calls),
+            ),
+            user_id=request.user_id,
+        )
+
         return to_invocation_response(result, session_id=session_id)
