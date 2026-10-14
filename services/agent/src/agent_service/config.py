@@ -100,8 +100,11 @@ class Settings(BaseSettings):
     bedrock_model_id: str = ""
 
     # --- Development-only: accept a key from the web UI --------------------
-    #: Off by default. When on, a key may be submitted at runtime; it is held in
-    #: memory only and is documented as development-only.
+    #: **Reserved and wired to nothing.** It was added for a development-only path where the
+    #: page could submit a key to be held in process memory; that path was never built, and
+    #: no endpoint accepts a key, so both values behave identically. Kept rather than deleted
+    #: so the intent stays visible and the flag is not re-invented — and it is one of the
+    #: documented-but-unread settings that README section j names as a class of defect.
     allow_runtime_key_entry: bool = False
 
     @field_validator("trace_dir", mode="before")
@@ -132,9 +135,10 @@ class Settings(BaseSettings):
     def configured_providers(self) -> tuple[ProviderName, ...]:
         """Providers that could actually be used right now.
 
-        This is what the web UI is allowed to know: a provider is offered only if it
-        has what it needs. No key material, no key prefix and no hint about a key's
-        contents ever leaves this method.
+        Used to refuse an unusable selection at startup and to name the alternatives in
+        the resulting message. No endpoint publishes it, so nothing outside this process
+        sees it, and it returns names only: no key material, no key prefix, no hint about
+        a key's contents.
         """
         available: list[ProviderName] = ["scripted", "replay"]
 

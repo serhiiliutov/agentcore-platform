@@ -102,6 +102,87 @@ FLAKY=1 FLAKY_RATE=0.3 make mock              # ~30% of calls fail, reproducibly
 LATENCY_MS=3000 docker compose up ticketing   # every response takes 3 seconds
 ```
 
+## Start here — four questions, answered with commands
+
+Written for someone who has just cloned this. PowerShell on Windows; on Linux or macOS write
+`VAR=value` instead of `$env:VAR='value'`.
+
+**Run it.** No key, no network and no configuration: the default provider is the deterministic
+`scripted` one, so the stack comes up working.
+
+```powershell
+docker compose up -d --wait        # ticketing mock + MCP server + agent, ~20s (same as: make up)
+start http://localhost:8080/       # the page: ask something, watch it propose, approve it
+make logs                          # what the agent is doing, as it does it
+docker compose down                # stop; add -v to drop the data volume too
+```
+
+The page is served by the agent container itself — there is no separate web service, no nginx and no
+front-end build. `make doctor` prints what is installed, what is configured and what is answering.
+
+**Test it.** Three levels, none of which needs a key:
+
+```powershell
+make test-unit                     # 446 tests in ~7s: no stack, no credentials
+make eval                          # 22 cases against its own throwaway stack, exits 1 on any failure
+make up; make test-integration     # the 4 tests that need the composed stack
+```
+
+Then drive the contract by hand, because that is the surface the assignment describes — two turns of
+one conversation:
+
+```powershell
+$h = @{ 'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id' = 'try-1' }
+
+# 1. it proposes the write and stops instead of writing
+Invoke-RestMethod http://localhost:8080/invocations -Method Post -Headers $h -ContentType application/json `
+  -Body (@{ prompt = 'open a ticket for the flickering monitor'; user_id = 'me' } | ConvertTo-Json) |
+  Select-Object stop_reason, pending_approval
+
+# 2. answering in the same session IS the approval — the ticket is created now
+Invoke-RestMethod http://localhost:8080/invocations -Method Post -Headers $h -ContentType application/json `
+  -Body (@{ prompt = 'yes, go ahead'; user_id = 'me' } | ConvertTo-Json) |
+  Select-Object stop_reason, tool_calls
+
+# the other decision path, using the approval id from step 1: same gate, one row, one write
+Invoke-RestMethod http://localhost:8080/invocations/approvals/<approval_id>/decide -Method Post `
+  -ContentType application/json -Body (@{ user_id = 'me'; approved = $true } | ConvertTo-Json)
+```
+
+Say `"no thanks"` instead and nothing is written; ask something unrelated and the proposal stays
+pending and comes back on the response. `eval/cases.json` asserts exactly those three answers.
+
+**Switch models.** One environment variable, read once when the process starts:
+
+```powershell
+$env:ANTHROPIC_API_KEY = 'sk-ant-...'      # or OPENAI_API_KEY; OPENAI_BASE_URL for a local model
+$env:AGENT_MODEL_PROVIDER = 'anthropic'    # scripted | replay | anthropic | openai |
+                                           # openai_compatible | bedrock
+docker compose up -d agent                 # recreate the agent with the new environment
+```
+
+`AGENT_MODEL_ID` names a specific model and is empty by default, meaning the provider's own default.
+There is no runtime switch and no provider picker: the choice is read once while the application is
+built, so changing it is an environment change and a restart, and a provider selected without what it
+needs is refused at startup with a message naming it. Full table, per-provider examples, and the
+local-model caveat: [`docs/runbooks/provider-setup.md`](docs/runbooks/provider-setup.md).
+
+**Read it.** In this order. Each file is self-contained; the first two tell you where everything else
+lives.
+
+| # | File | Why start there |
+|---|---|---|
+| 1 | `services/agent/src/agent_service/api/app.py` | the whole contract surface — `/ping`, `/invocations`, the session header, and every route it mounts |
+| 2 | `.../agent_service/factory.py` | the composition root: which implementation of each interface this process got, and why |
+| 3 | `.../agent_service/agent/loop.py` | the loop — prompt → provider → the tools that may run → repeat, with the one interception that turns a write into a proposal |
+| 4 | `.../agent_service/agent/decisions.py` | what counts as yes, what counts as no, and what counts as neither |
+| 5 | `.../agent_service/agent/handler.py` | one turn end to end: memory, the decision gate, the span it writes |
+| 6 | `.../agent_service/agent/gate.py`, `.../execution.py` | the approval state machine, and the write that happens exactly once |
+| 7 | `.../agent_service/tools/registry.py` | which tools are reads and which are writes — the rule the interception uses |
+| 8 | `.../agent_service/db/models/` | the schema, and the two things deliberately not in it |
+| 9 | `tests/unit/test_message_approval.py`, `eval/cases.json` | the behaviour, as executable assertions rather than prose |
+| 10 | `docs/architecture/overview.md`, `approval-state-machine.md` | the design, once you have seen the code. Then [`AGENTCORE.md`](AGENTCORE.md) for the move to AWS |
+
 ## b. Architecture overview
 
 Three processes, and the agent never touches the ticketing system directly:
@@ -173,7 +254,8 @@ budget is exhausted, with one interception layer that turns a write call into a 
 of state it touches is a table I can query, so "why did this run do that?" is answered with SQL rather
 than by reading a framework's internals.
 
-**Providers** are selected by configuration, per session:
+**Providers** are selected by configuration, per process — one provider answers for the whole service,
+and a different one means changing the environment and restarting:
 
 | Provider | Purpose | Needs a key |
 |---|---|---|
@@ -186,9 +268,11 @@ than by reading a framework's internals.
 
 `scripted` is not a workaround for not having a key — it is what makes the eval suite reproducible
 and free enough to run on every commit, and it is why every screenshot in this repository can be
-regenerated. Keys are `SecretStr` so a `repr()` in a log or a trace shows `**********`, and the UI can
-*select* among configured providers while being told only whether each is configured — never a key,
-a prefix or a fingerprint.
+regenerated. Keys are `SecretStr` so a `repr()` in a log or a trace shows `**********`, and no key, key
+prefix or fingerprint is published by any endpoint. There is no provider picker and no runtime switch:
+choosing a provider is the environment change and restart the runbook describes, and one selected
+without what it needs is refused while the application is built — with a message naming it — rather
+than failing three turns into a conversation.
 
 The honest limitation, measured rather than assumed: local inference here means a ~3B model on CPU
 (4 GB GPU with no Windows container pass-through, 16 GB RAM), which is slow and unreliable at tool
@@ -599,10 +683,14 @@ In rough priority order, and each is a real gap rather than a wish:
    on a deterministic provider. One nightly run against a real model, asserting only that a turn
    completes and picks a sensible tool, would catch prompt and tool-description regressions that the
    scripted provider cannot.
-5. **Make every environment variable either read or absent.** Three separate defects in this project
-   were variables that were documented and never read, and each presented as something else — a
-   permissions error, a missing table. A startup assertion that the settings object and `.env.example`
-   agree would have removed a whole class of afternoon.
+5. **Make every environment variable either read or absent.** Four separate defects in this project
+   were variables that were documented and never read: `MCP_DB_PATH` early on, and then
+   `ALLOW_RUNTIME_KEY_ENTRY`, `WEB_PORT` and `AGENT_BASE_URL`, which were found only when a question
+   about switching models was answered against the code instead of against the docs. Each presented as
+   something else — a permissions error, a missing table, a feature described in a runbook that no code
+   implements. The first is gone; the other three are now labelled reserved where they are defined. A
+   startup assertion that the settings object and `.env.example` agree would have removed a whole class
+   of afternoon.
 6. **A `forget me` path for memory.** Facts expire; nothing deletes. That is the wrong answer for a
    user who asks, and it is a small feature with a clear contract.
 7. **Coverage floor and mutation testing on the two critical modules** — the approval gate and the

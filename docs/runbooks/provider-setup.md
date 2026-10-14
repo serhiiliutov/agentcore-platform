@@ -26,9 +26,10 @@ what makes a failure in the orchestration distinguishable from a failure in a mo
 | `openai_compatible` | `OPENAI_BASE_URL` | any OpenAI-shaped endpoint — Ollama, vLLM, LM Studio, Groq, Together |
 | `bedrock` | `AWS_REGION` (+ AWS credentials) | Amazon Bedrock Converse API |
 
-A provider is offered by the page **only if it has what it needs**; the check is
-`Settings.configured_providers()`. The page is told which providers are configured and never a key,
-a prefix, or a fingerprint.
+Which providers are *usable* is decided by `Settings.configured_providers()`: a provider whose
+dependency is missing is not usable, and selecting one is refused at startup with a message naming
+it. That check is what the startup log and the error message use; no HTTP endpoint publishes the
+list, and no page is told which providers are configured.
 
 ## Switching provider
 
@@ -51,9 +52,16 @@ Two things to know about `.env`, because both behave differently from what peopl
 - **A missing key for the selected provider is a clear startup error**, not a confusing failure
   three turns in: `selected_provider_is_usable()` is checked while building the application.
 
-There is also a runtime switch. The page can change the provider for the session, which writes a row
-to `provider_settings` (`scope` = `global` or `session:<id>`) rather than to a process variable —
-a row, so the choice survives a restart and a reviewer can see it.
+**There is no runtime switch, and this section says so because an earlier draft claimed one.** The
+`provider_settings` table is in the schema — with `scope`, `model_id` and a `note`, designed exactly
+for this — but nothing reads or writes it; `architecture/data-model.md` now labels it reserved. The
+provider in force is `Settings.agent_model_provider`, read once while the application is built, so a
+change is the environment change and the restart above and nothing else.
+
+Wiring the row is a small piece of work, which is why leaving it described-but-absent was the wrong
+default: the resolution point is one line in
+[`providers/base.py`](../../services/agent/src/agent_service/providers/base.py), and a repository plus
+one route would make it real.
 
 ## Per provider
 

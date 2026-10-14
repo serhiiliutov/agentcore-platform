@@ -1,7 +1,8 @@
 # Stage 17 — reading the assignment back against the running system
 
 **Status: complete.** Four gaps between what the assignment's contract says and what the code
-actually did, all four fixed and verified through the real surface: **446 tests**, **22 of 22 eval
+actually did — plus a fifth found later, while answering a question about switching models — all five
+fixed and verified through the real surface: **446 tests**, **22 of 22 eval
 cases**, `ruff`, `mypy --strict` across 104 files, and the contract's own single-container smoke test
 built and run with its documented body. This stage exists because the question asked was "is this
 fully implemented before I send it", and the answer up to here had been assembled from the plan
@@ -194,6 +195,37 @@ of dressed up.
 The tokens column is now only ever zero when the provider reports nothing — which the deterministic
 provider used by the evals genuinely does — and both documents say so.
 
+## Finding 5 — three more claims with no code behind them
+
+This one was not found by reading the contract; it was found by answering a question. "How do I set
+up a different model, and what do I change in the environment?" is a question whose answer is a
+procedure, so I walked the procedure against the code — and three sentences that describe a feature
+turned out to describe nothing:
+
+| Where the claim lived | What it claimed | What the code did |
+|---|---|---|
+| `docs/runbooks/provider-setup.md`, `docs/architecture/data-model.md`, the `ProviderSetting` docstring | a **runtime switch**: the page changes the provider per session and writes a row to `provider_settings`, so it survives a restart | nothing reads or writes `provider_settings`; the provider is `Settings.agent_model_provider`, read once in `providers/base.py` |
+| `README.md` §c, `.env.example`, `docs/runbooks/provider-setup.md` | a **key entered at the page** when `ALLOW_RUNTIME_KEY_ENTRY=1`, held in process memory and never persisted | `allow_runtime_key_entry` is defined in `config.py` and read by no code; no endpoint accepts a key |
+| `.env.example` | a **web service**: `services/web`, nginx on `:3000`, `WEB_PORT`, `AGENT_BASE_URL` proxying `/api/*` | there is no `services/web`; compose has three services; the page is served by the agent at `/`; neither variable is read |
+
+All three are the same defect as README §j item 5 — a documented-but-unread seam — and the third is
+the same defect as stage 11 and 14's *unreachable* feature, in the opposite direction: documentation
+for something that was never built rather than a build nothing can reach.
+
+**What was done.** Corrected at the source rather than annotated, in six places: the two documents,
+the `ProviderSetting` docstring and class docstring, `config.py`'s comment and
+`configured_providers()`'s docstring (which claimed the list was "what the web UI is allowed to
+know"), and `.env.example` — where the `ALLOW_RUNTIME_KEY_ENTRY` block and the whole `services/web`
+block now say what is true. Two seams are kept and labelled **reserved**: the provider row, because
+the design it belongs to is sound and the resolution point is one line, and the key-entry flag, for
+the same reason. The two unused port variables are simply gone. `README.md` §c no longer offers a
+provider picker, §j now names all four instances, and a new **Start here** section answers the four
+questions — run it, test it by hand, switch models, and the order to read the code in — with commands
+that were each executed in this repository.
+
+That the question came from a person rather than from a test is the lesson: every gate in this
+repository checks that the code does what it says, and none of them can check that a *document* does.
+
 ## Defects this stage found in its own work
 
 Recorded because they are the substance, and because each was caught by a gate rather than by
@@ -238,6 +270,8 @@ reading:
 | No stale claim remains anywhere a reader would look | `Select-String` over README, AGENTCORE, `docs/architecture`, `docs/runbooks`, `docs/media`, `services/agent/README.md` for the old counts and the old tracing wording | **met** — plan history is deliberately *not* rewritten; stage records state what was true then |
 | Gates | `ruff`, `ruff format --check`, `mypy --strict`, `pytest`, `detect-secrets` | **met** — lint and format clean, `Success: no issues found in 104 source files`, 446 passed / 4 deselected, secrets "nothing new" |
 | The suite as a whole | `python -m devtasks eval` | **met** — **22 of 22 passed in 46.8s** |
+| No document describes a feature no code implements | every provider/key-entry/web-service claim walked against the code, then corrected in six places | **met** — finding 5; the two seams that remain are labelled reserved where they are defined |
+| A newcomer can run, test and reconfigure it from the README alone | the commands in the new **Start here** section, each run in this repository | **met** — compose up/ps/logs/down, `make test-unit`, `make eval`, `make test-integration`, the two-call approval flow, the decide route, and the provider switch |
 
 ## What this stage does not claim
 

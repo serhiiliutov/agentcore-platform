@@ -13,11 +13,15 @@ two genuinely different requests that happen to share an id into one answer, so 
 of the prompt is stored alongside and a mismatch is an error rather than a silent
 replay of the wrong answer.
 
-**``ProviderSetting``** records which model provider is selected. It is a row rather
-than process state so the choice survives a restart and is visible to a reviewer, and
-``scope`` allows a per-session override without a second mechanism. It stores the
-*selection*, never a credential: keys live in the environment, or in memory when the
-development-only runtime entry is enabled.
+**``ProviderSetting`` is reserved, and currently unwired.** No code path reads or writes a
+row, and the provider in force is ``Settings.agent_model_provider``, read once at startup
+(`providers/base.py`). It is kept rather than dropped because the design it belongs to is
+sound and half-built: a row instead of process state would make a provider change survive a
+restart and be visible to a reviewer, and ``scope`` would allow a per-session override without
+inventing a second mechanism. Whoever wires it should change the resolution point in
+`providers/base.py` and delete this paragraph. Until then the honest statement — the one
+`docs/runbooks/provider-setup.md` now makes — is that changing provider means changing the
+environment and restarting.
 """
 
 from __future__ import annotations
@@ -67,7 +71,11 @@ class IdempotencyKey(Base):
 
 
 class ProviderSetting(Base):
-    """Which model provider and model are selected, for one scope."""
+    """Which model provider and model are selected, for one scope.
+
+    Reserved and unwired: see the module docstring. The columns are the design; nothing
+    reads or writes them, and ``scope``'s per-session idea is not implemented.
+    """
 
     __tablename__ = "provider_settings"
 

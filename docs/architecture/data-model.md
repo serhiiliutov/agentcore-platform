@@ -74,11 +74,19 @@ different requests that happen to share an id into one answer, so a hash of the 
 alongside and a mismatch is an error rather than a silent replay of the wrong answer. `expires_at`
 is indexed because the ledger is pruned by age — an unbounded ledger is a slow leak.
 
-### `provider_settings` — which model, for which scope
+### `provider_settings` — reserved, and not wired
 
-A row rather than process state, so the selection survives a restart and is visible to a reviewer.
-`scope` is `global` or `session:<id>`, which allows a per-session override without inventing a
-second mechanism. It stores the *selection*, never a credential: keys live in the environment.
+**The table exists in the schema, and nothing reads or writes it.** The provider in force is
+`Settings.agent_model_provider`, read once at startup, so changing it means changing the environment
+and restarting — [`../runbooks/provider-setup.md`](../runbooks/provider-setup.md) says so, and an
+earlier draft of both that runbook and this section claimed a runtime switch existed.
+
+It is kept because the design behind it is sound: a row rather than process state, so a selection
+would survive a restart and be visible to a reviewer, with `scope` (`global` or `session:<id>`)
+allowing a per-session override without inventing a second mechanism. It stores the *selection*, never
+a credential: keys live in the environment. Wiring it is small and bounded — the resolution point is
+`providers/base.py` — and it is recorded here rather than done so that nobody mistakes a schema for a
+feature.
 
 ## The one invariant: ownership
 
