@@ -1,0 +1,65 @@
+# ============================================================================
+# The CI variant of the stack — an OVERRIDE file, not a replacement.
+#
+# How it is used, in both places, identically:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+#         -p agentcore-platform-ci up -d --build --wait
+#
+# which is also `make up-ci` / `devtasks up-ci`.
+#
+# Two things about this file are the result of trying the alternatives first.
+#
+# `include:` was the first attempt at avoiding a duplicated topology, and Compose
+# rejected it: a service defined in the main file "conflicts with imported resource"
+# rather than overriding it, so an included file may add services but cannot adjust
+# the ones it brought in. The override pair is the mechanism that exists for exactly
+# this, and it needs no Compose version newer than the day it shipped.
+#
+# The second attempt used `!reset` and `!override` to drop the ports the base file
+# publishes. Those tags are far newer than the override mechanism they would be used
+# inside, so the file would have failed on any Compose older than about 2.24 — for a
+# cosmetic gain. Publishing 8000 and 8081 on a CI runner is harmless: nothing else on
+# that runner wants those ports. So this file only pins environment, which merges the
+# ordinary way everywhere.
+#
+# `-p agentcore-platform-ci` puts this stack in its own compose project, so `up-ci`
+# cannot stop or reuse the containers a developer already has running, and the two
+# never share a database volume. Without it both would be project
+# `agentcore-platform` and one would silently replace the other.
+#
+# What CI pins, and why each one:
+#
+#   * FLAKY=0, LATENCY_MS=0 — a pipeline that fails two runs in five is a pipeline
+#     people learn to re-run without reading. The failure paths are not abandoned;
+#     they are covered by tests that create the failure they assert on
+#     (tests/integration/test_failure_paths.py) and by the eval suite's own
+#     deterministic modes.
+#   * AGENT_MODEL_PROVIDER=scripted — same commit, same result, no credential and no
+#     network. A live-model run is a different, non-reproducible claim and belongs in
+#     its own job with its own secret. Pinned here even though the base file defaults
+#     to it, so a provider exported in the developer's shell cannot leak into a CI run
+#     and make it non-deterministic in a way that only shows up on another machine.
+# ============================================================================
+
+services:
+  ticketing:
+    environment:
+      FLAKY: "0"
+      FLAKY_RATE: "0.0"
+      LATENCY_MS: "0"
+
+  mcp-ticketing:
+    environment:
+      # Read by the MCP server only if it were pointed at the mock directly; set so
+      # that the two stacks cannot differ in a way a reader has to reason about.
+      FLAKY: "0"
+
+  agent:
+    environment:
+      AGENT_MODEL_PROVIDER: scripted
+      # A shorter turn budget than a developer's, deliberately: a smoke test that
+      # hangs for 90 seconds on a broken connection wastes the runner, and 30 is
+      # already an order of magnitude more than a working turn needs.
+      AGENT_REQUEST_DEADLINE_S: "30"
+      LOG_LEVEL: INFO

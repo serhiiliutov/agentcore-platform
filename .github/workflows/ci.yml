@@ -1,0 +1,286 @@
+# ============================================================================
+# Continuous integration.
+#
+# What this workflow is for, and what it deliberately is not.
+#
+# It is the same set of gates a reviewer can run locally — `make ci` — plus the two
+# things a local run cannot prove: that the images build from a clean checkout, and
+# that the three containers come up and answer together. So the jobs are:
+#
+#   static   lint + typecheck            (`make lint`, `make typecheck`)
+#   test     unit + integration          (`make test-unit`, `make test-integration`)
+#   eval     the eval suite              (`make eval`)
+#   secrets  the secret scan             (`make secrets`)
+#   images   build, run, smoke-test      (the part only CI can do)
+#   arm64    a cross-build for linux/arm64
+#
+# It is NOT a place where chaos is switched on, and that is a decision rather than an
+# omission. FLAKY=1 in CI makes a pipeline that fails some fraction of the time for a
+# reason unrelated to the change under test, and people respond to that by re-running
+# until it is green — which trains everyone to ignore it. The failure paths are
+# covered where they can be asserted on: tests/integration/test_failure_paths.py
+# creates the failure it asserts about, and the eval suite has its own deterministic
+# modes. See docker-compose.ci.yml for the same reasoning applied to the stack.
+#
+# Secrets are scanned with `detect-secrets`, which is already a pinned dev
+# dependency, rather than the gitleaks Action. gitleaks needs a licence secret for
+# organisation accounts and a third-party action for the rest; detect-secrets needs
+# neither, runs in the same environment a developer has, and finds the same class of
+# mistake. Adding gitleaks back is a two-line change if a licence is available.
+# ============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A superseded run has no value: cancel it. The exception is a push to main, which is
+# never cancelled — that run is the record of what the branch contains.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  # The CI stack, exactly as `devtasks up-ci` spells it: the development file plus the
+  # CI override, in its own compose project so it cannot collide with anything else on
+  # the runner. Defined once and expanded below, so the workflow and the task cannot
+  # drift into two different stacks.
+  COMPOSE_CI: "docker compose -f docker-compose.yml -f docker-compose.ci.yml -p agentcore-platform-ci"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Static gates. Cheapest and fastest, so they fail a run earliest.
+  # --------------------------------------------------------------------------
+  static:
+    name: lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # `--all-groups` because ruff, mypy and pytest live in the dev group; the
+      # services are listed in it too, which is what makes one environment able to
+      # import both.
+      - run: uv sync --all-groups --frozen
+
+      - run: uv run python -m devtasks lint
+      - run: uv run python -m devtasks typecheck
+
+  # --------------------------------------------------------------------------
+  # Tests. The suite carries its own marker for what needs a stack, and the
+  # integration tests start the mock themselves on a free port — so this job needs
+  # no services and no Docker.
+  # --------------------------------------------------------------------------
+  test:
+    name: unit and integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - run: uv sync --all-groups --frozen
+
+      - run: uv run python -m devtasks test-unit
+      - run: uv run python -m devtasks test-integration
+
+  # --------------------------------------------------------------------------
+  # Evals. Deterministic by construction: the scripted provider needs no key and
+  # no network, so the same commit produces the same table.
+  # --------------------------------------------------------------------------
+  eval:
+    name: evals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - run: uv sync --all-groups --frozen
+
+      # Non-zero exit on a failed case is the whole point of this step: it is a
+      # gate, not a report.
+      - run: uv run python -m devtasks eval
+
+      - name: keep the result as an artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval/results/
+          if-no-files-found: warn
+
+  # --------------------------------------------------------------------------
+  # The secret scan.
+  # --------------------------------------------------------------------------
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - run: uv sync --all-groups --frozen
+      - run: uv run python -m devtasks secrets
+
+  # --------------------------------------------------------------------------
+  # The images, and the stack they make.
+  #
+  # This is the only job that proves something the local gates cannot: that a clean
+  # checkout builds both images and that the three containers reach each other and
+  # answer. It waits on the other jobs so a broken commit does not spend minutes on
+  # a container build to report something lint already found.
+  # --------------------------------------------------------------------------
+  images:
+    name: images and smoke test
+    runs-on: ubuntu-latest
+    needs: [static, test, eval]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Both Python images and the mock, with the GitHub Actions cache. The cache
+      # is worth more here than anywhere else: the dependency layer is ~200MB of
+      # wheels and changes only when `uv.lock` does.
+      - name: build the agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/agent/Dockerfile
+          push: false
+          load: true
+          tags: agentcore-platform-agent:ci
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
+      - name: build the MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/mcp-ticketing/Dockerfile
+          push: false
+          load: true
+          tags: agentcore-platform-mcp-ticketing:ci
+          cache-from: type=gha,scope=mcp
+          cache-to: type=gha,mode=max,scope=mcp
+
+      - name: build and start the stack
+        run: $COMPOSE_CI up -d --build --wait
+        timeout-minutes: 15
+
+      - name: show the stack
+        if: always()
+        run: $COMPOSE_CI ps
+
+      # The contract, then a real turn. `/ping` proves the process is serving; the
+      # POST proves the whole chain — agent container, MCP container, mock — is
+      # wired, authenticated and able to complete a tool call.
+      - name: the contract answers
+        run: curl -fsS http://localhost:8080/ping
+
+      - name: a real turn reaches the mock through the MCP server
+        run: |
+          response=$(curl -fsS -X POST http://localhost:8080/invocations \
+            -H 'Content-Type: application/json' \
+            -d '{"prompt":"find tickets about the printer","user_id":"ci","session_id":"ci-1"}')
+          echo "$response"
+          # Both halves are asserted, and the names are the contract's, not the
+          # loop's: an invocation that finishes reports `stop_reason: "completed"`
+          # (the loop says `end_turn` internally and the handler translates it), and
+          # a tool call that really reached the mock reports `outcome: "executed"`.
+          # Asserting only one of them would pass while the other was broken — a
+          # turn can complete having called nothing, and a call can be attempted and
+          # refused. If the MCP connection were refused or the token wrong, the tool
+          # call would be recorded with an error outcome instead.
+          printf '%s' "$response" | grep -q '"stop_reason":"completed"' \
+            || { echo "::error::the turn did not complete"; exit 1; }
+          printf '%s' "$response" | grep -q '"outcome":"executed"' \
+            || { echo "::error::the tool call did not execute; the stack is not wired end to end"; exit 1; }
+
+      - name: logs on failure
+        if: failure()
+        run: $COMPOSE_CI logs --tail=200
+
+      - name: stop the stack
+        if: always()
+        run: $COMPOSE_CI down -v
+
+  # --------------------------------------------------------------------------
+  # linux/arm64, built but not run.
+  #
+  # The assignment's contract mentions arm64 and this host is amd64, so the honest
+  # position is: the build is proven, the runtime is not. QEMU makes the RUN steps
+  # execute under emulation, which is slow but real — so a build failure here is a
+  # genuine portability failure (a binary wheel that does not exist for arm64, say)
+  # rather than a claim nobody checked.
+  # --------------------------------------------------------------------------
+  arm64:
+    name: cross-build for linux/arm64
+    runs-on: ubuntu-latest
+    needs: [static]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      # `type=cacheonly` builds the image without exporting it: the local daemon is
+      # amd64 and cannot load a foreign-platform image, and nothing needs to run it.
+      - name: build the agent image for arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/agent/Dockerfile
+          platforms: linux/arm64
+          push: false
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=agent-arm64
+          cache-to: type=gha,mode=max,scope=agent-arm64
+
+      - name: build the MCP image for arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/mcp-ticketing/Dockerfile
+          platforms: linux/arm64
+          push: false
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=mcp-arm64
+          cache-to: type=gha,mode=max,scope=mcp-arm64

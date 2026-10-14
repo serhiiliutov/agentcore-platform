@@ -47,6 +47,11 @@ COMMANDS: dict[str, tuple[TaskFn, str, str]] = {
     "down": (tasks.down, "stop the stack", "devtasks down"),
     "ps": (tasks.ps, "service status and health", "devtasks ps"),
     "logs": (tasks.logs, "tail logs; pass a service name to narrow", "devtasks logs agent"),
+    # The same three services with CI's deterministic settings, on their own compose
+    # project, so that the stack the workflow uses is one a developer can run too.
+    "up-ci": (tasks.up_ci, "start the CI stack and wait for health", "devtasks up-ci"),
+    "down-ci": (tasks.down_ci, "stop the CI stack (add -v to drop volumes)", "devtasks down-ci -v"),
+    "ps-ci": (tasks.ps_ci, "CI stack status, including healthchecks", "devtasks ps-ci"),
     "reset": (tasks.reset_mock, "restore the ticketing seed data", "devtasks reset"),
     "mock": (tasks.mock, "run the mock ticketing API locally (blocking)", "devtasks mock"),
     "mcp": (tasks.mcp, "run the MCP server locally over stdio (blocking)", "devtasks mcp"),

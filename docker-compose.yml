@@ -1,10 +1,158 @@
+# ============================================================================
+# AgentCore Platform — the whole stack, one command.
+#
+#     cp .env.example .env      # every value has a working default
+#     docker compose up -d --build
+#     docker compose ps         # all three healthy
+#
+# The page is at http://localhost:8080/ and the contract is at /invocations on the
+# same port.
+#
+# THREE services, not four. The master plan describes a separate `web` container on
+# :3000 proxying /api/* to the agent; that was not built, because the page turned out
+# to be an ordinary client of a contract that already exists, and a second container,
+# a port and a CORS policy would have bought nothing. The page is served by the agent
+# itself at `/`. Recorded in docs/plan/stage-11.md and again in stage-14.md, because
+# a reviewer counting services will look here first.
+#
+# The mock is the starter kit's fixture and is never edited — surviving its failures
+# is the exercise. It is the only service with no dependency on any other.
+# ============================================================================
+
+name: agentcore-platform
+
 services:
+  # --------------------------------------------------------------------------
+  # The mock ticketing system. Unmodified starter-kit code (see docs/starter-kit).
+  # --------------------------------------------------------------------------
   ticketing:
     build: ./mock-ticketing
     ports:
       - "8000:8000"
     environment:
+      # Shared secret with the MCP server. The agent never sees this value.
       API_KEY: ${API_KEY:-dev-key-123}
-      FLAKY: ${FLAKY:-0}          # set to 1 to inject 429/500 failures
+      # Fault injection, read per request, so it can be toggled on a running mock.
+      FLAKY: ${FLAKY:-0}
       FLAKY_RATE: ${FLAKY_RATE:-0.3}
+      # Empty means "use the mock's own default". Passed through rather than
+      # defaulted here, so an operator who seeds the sequence in `.env` gets it.
+      FLAKY_SEED: ${FLAKY_SEED:-}
       LATENCY_MS: ${LATENCY_MS:-0}
+    healthcheck:
+      # `/health` is the mock's own route and reports its state, so this passes only
+      # when the app is really up — not merely when the port is bound.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',8000,timeout=2); c.request('GET','/health'); sys.exit(0 if c.getresponse().status==200 else 1)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # --------------------------------------------------------------------------
+  # The MCP server: the only route from the agent to the mock, and the only
+  # component that holds the ticketing credential.
+  # --------------------------------------------------------------------------
+  mcp-ticketing:
+    build:
+      context: .
+      dockerfile: services/mcp-ticketing/Dockerfile
+    ports:
+      # Published so a host run of the agent (or the eval suite) can reach it.
+      - "8081:8081"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8081
+      # This one value is the handshake between the two services. Both sides read
+      # the same variable, so they cannot drift apart by editing one of them: the
+      # agent refuses to start over HTTP without a token, and a mismatch fails the
+      # initialize call rather than any tool call.
+      MCP_TOKEN: ${MCP_TOKEN:-dev-mcp-token}
+      # Compose resolves the service name, so the same code reaches the mock on the
+      # host and in the network without a branch.
+      TICKETING_BASE_URL: http://ticketing:8000
+      TICKETING_API_KEY: ${API_KEY:-dev-key-123}
+      TICKETING_TIMEOUT_S: ${TICKETING_TIMEOUT_S:-5}
+      TICKETING_DEADLINE_S: ${TICKETING_DEADLINE_S:-20}
+      TICKETING_MAX_ATTEMPTS: ${TICKETING_MAX_ATTEMPTS:-4}
+      TICKETING_BACKOFF_BASE_S: ${TICKETING_BACKOFF_BASE_S:-0.4}
+      TICKETING_BACKOFF_MAX_S: ${TICKETING_BACKOFF_MAX_S:-4.0}
+      # The idempotency ledger. On the volume, so a restart does not forget which
+      # client_request_id already produced a ticket — which is the whole point of it.
+      #
+      # The name matters and is not the one you would guess: the server reads
+      # TICKETING_LEDGER_PATH, and `.env.example` documented `MCP_DB_PATH` for a
+      # while — a variable nothing reads. Setting only that left the server on its
+      # *relative* default under a root-owned working directory, and it died at
+      # startup with a PermissionError that looked like a permissions problem.
+      TICKETING_LEDGER_PATH: /data/mcp.sqlite3
+    volumes:
+      - mcp-data:/data
+    depends_on:
+      ticketing:
+        # Busy-waiting for the mock inside the MCP server would just move a startup
+        # race into application code. Compose already knows how to wait for health.
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # The agent: the AgentCore Runtime workload.
+  # --------------------------------------------------------------------------
+  agent:
+    build:
+      context: .
+      dockerfile: services/agent/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      AGENT_HOST: 0.0.0.0
+      AGENT_PORT: 8080
+      # scripted | replay | anthropic | openai | openai_compatible | bedrock.
+      # `scripted` is the default because it needs no credential, which is what makes
+      # a bare `docker compose up` a working stack rather than a configuration exercise.
+      AGENT_MODEL_PROVIDER: ${AGENT_MODEL_PROVIDER:-scripted}
+      AGENT_MODEL_ID: ${AGENT_MODEL_ID:-}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-10}
+      AGENT_REQUEST_DEADLINE_S: ${AGENT_REQUEST_DEADLINE_S:-90}
+      AGENT_APPROVAL_TTL_S: ${AGENT_APPROVAL_TTL_S:-1800}
+      AGENT_HISTORY_MAX_TURNS: ${AGENT_HISTORY_MAX_TURNS:-20}
+      AGENT_MEMORY_FACT_TTL_DAYS: ${AGENT_MEMORY_FACT_TTL_DAYS:-180}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # The database, its WAL files and the traces all live on the volume, so
+      # `docker compose down && up` keeps conversations, approvals and memory.
+      DATABASE_URL: sqlite+pysqlite:////data/agent.sqlite3
+      TRACE_DIR: /data/traces
+      # The MCP connection, as a client of the service above.
+      MCP_TRANSPORT: http
+      MCP_HOST: mcp-ticketing
+      MCP_PORT: 8081
+      MCP_TOKEN: ${MCP_TOKEN:-dev-mcp-token}
+      # Credentials, passed through when set and harmless when not. An empty
+      # ANTHROPIC_API_KEY with AGENT_MODEL_PROVIDER=scripted is the normal case.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+      # Keys from the web UI stay in process memory; never enable this on anything
+      # internet-facing (see .env.example).
+      ALLOW_RUNTIME_KEY_ENTRY: ${ALLOW_RUNTIME_KEY_ENTRY:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-agentcore-platform}
+    volumes:
+      - agent-data:/data
+    depends_on:
+      mcp-ticketing:
+        condition: service_healthy
+
+volumes:
+  # Two volumes rather than one shared /data: the ledger and the agent's database
+  # have different lifetimes, and a single volume would make `docker compose down -v`
+  # a decision about both at once.
+  agent-data:
+  mcp-data:

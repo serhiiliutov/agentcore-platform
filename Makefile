@@ -24,7 +24,7 @@ RUN := $(UV) run python -m devtasks
 .PHONY: help bootstrap doctor json \
         lint fmt typecheck format \
         test test-unit test-integration \
-        up down ps logs reset mock mcp \
+        up down ps logs up-ci down-ci ps-ci reset mock mcp \
         migrate downgrade revision \
         eval secrets env clean ci
 
@@ -100,6 +100,18 @@ ps:
 ## logs: tail logs; narrow with `make logs ARGS=agent`
 logs:
 	@$(RUN) logs $(ARGS)
+
+## up-ci: start the CI stack — same services, deterministic, waits for health
+up-ci:
+	@$(RUN) up-ci $(ARGS)
+
+## down-ci: stop the CI stack; `make down-ci ARGS=-v` drops its volumes too
+down-ci:
+	@$(RUN) down-ci $(ARGS)
+
+## ps-ci: CI stack status, including healthchecks
+ps-ci:
+	@$(RUN) ps-ci $(ARGS)
 
 ## reset: restore the ticketing seed data
 reset:

@@ -9,17 +9,21 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 from collections.abc import Sequence
+from typing import TypedDict
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from devtasks.runner import (
     REPO_ROOT,
     TaskError,
+    build_env,
     python,
     require_docker,
     require_env_file,
+    resolve_tool,
     run,
     run_tool,
 )
@@ -32,6 +36,28 @@ DATA_DIR = REPO_ROOT / "data"
 
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 COMPOSE_CI_FILE = REPO_ROOT / "docker-compose.ci.yml"
+#: Compose project for the CI stack, so it cannot collide with a developer's one.
+CI_PROJECT_NAME = "agentcore-platform-ci"
+#: The reviewed allow-list of secret-shaped values, read by :func:`secrets`.
+SECRETS_BASELINE = ".secrets.baseline"
+#: Directories the secret scan must not walk: local environments, caches, runtime data.
+#:
+#: `--exclude-files` takes a regular expression, and the leading separator is optional on
+#: purpose. A top-level directory is walked as `.venv/Lib/...`, with nothing in front of it,
+#: so an expression anchored on a separator matches none of it — the scan then reports
+#: hundreds of findings inside third-party packages and looks like a gate doing its job.
+#: That is not hypothetical: it is what the first version of this pattern did, and it took a
+#: 193-second run and a read of the output to notice `.venv` was still in the results.
+SECRETS_EXCLUDE = (
+    # Local environments, caches and runtime data: third-party content, not ours.
+    r"(^|[\\/])(\.venv|\.git|data|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache"
+    r"|htmlcov|node_modules)[\\/]"
+    # ...and the allow-list itself. Its `hashed_secret` values are hex strings and read as
+    # secrets to the detector; scanning our own allow-list is circular, and without this the
+    # gate fails on a clean tree. detect-secrets skips the baseline by itself only when it is
+    # passed as `--baseline`, which this task does not do — the comparison is ours.
+    rf"|(^|[\\/]){SECRETS_BASELINE.replace('.', r'\.')}$"
+)
 
 #: Markers excluded from a unit-test run.
 UNIT_MARKERS = "not integration and not live"
@@ -83,26 +109,163 @@ def test(extra: Sequence[str] = ()) -> int:
 
 
 def secrets(extra: Sequence[str] = ()) -> int:
-    """Scan the working tree for credentials. Read-only.
+    """Scan the working tree for credentials, failing on anything unreviewed.
 
-    Uses `detect-secrets` rather than the `gitleaks` binary so that the check also
-    runs on a Windows checkout with no extra install. CI adds the gitleaks Action
-    as a second, independent layer.
+    Uses `detect-secrets` rather than the `gitleaks` binary so that the *same* check
+    runs here and in CI, on a Windows checkout, with no extra install. CI runs this
+    task rather than the gitleaks Action, which would need a licence secret on an
+    organisation account and a third-party action otherwise; the trade is recorded
+    in .github/workflows/ci.yml.
+
+    The result is read back and judged here, and that is not belt-and-braces:
+    `detect-secrets scan` exits 0 whether or not it found anything, because its job
+    is to *write* a baseline, not to gate on one. Calling it as a gate would have
+    produced a check that cannot fail — worse than no check at all, because it looks
+    like one and gets cited as evidence.
+
+    A finding is accepted only if its secret *hash* is already in
+    `.secrets.baseline`, which is the record of the values we have read and decided
+    are public: the starter kit's documented `dev-key-123`, the canary string that
+    tests/unit/test_providers.py asserts never appears in a log or a response, and
+    one false positive where the matched text is the *name* of an environment
+    variable rather than a value.
+
+    The comparison is by hash, not by path, and deliberately: the baseline was
+    written on Windows, where detect-secrets records `devtasks\\tasks.py`, and a
+    Linux runner records `devtasks/tasks.py`. A path-based check would therefore be
+    green locally and red in CI for a reason that has nothing to do with a secret.
+    The cost of hashing is that a *new* occurrence of an already-reviewed value
+    passes — acceptable here, because every reviewed value is one this repository
+    publishes on purpose.
+
+    Two flags are always passed, and both were needed before this gate could be trusted
+    to fail:
+
+      * `--all-files`, because the default covers only files git already tracks. A
+        credential in a new file — the usual way one arrives — would be invisible, and a
+        scan that reads as thorough while covering only committed files is the same class
+        of mistake as the one above.
+      * `--exclude-files`, because `--all-files` also walks `.venv`, `.git` and the local
+        `data/` directory, whose findings are third-party noise that would fail every run.
+        See `SECRETS_EXCLUDE` for the anchoring trap in that pattern.
     """
-    baseline = REPO_ROOT / ".secrets.baseline"
-    args = ["scan", "--baseline", str(baseline)] if baseline.exists() else ["scan"]
-    return run_tool("detect-secrets", [*args, *extra])
+    known = _reviewed_secret_hashes()
+    argv = [
+        *resolve_tool("detect-secrets"),
+        "scan",
+        # Without this the scan covers only files git already tracks — its own help says
+        # "as compared to only scanning git tracked files" — so a credential in a new,
+        # not-yet-committed file is invisible. That is the most likely way one arrives.
+        "--all-files",
+        "--exclude-files",
+        SECRETS_EXCLUDE,
+        *extra,
+    ]
+    print(f"\n$ {' '.join(argv)}", flush=True)
+
+    completed = subprocess.run(
+        argv,
+        cwd=str(REPO_ROOT),
+        env=build_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        print(completed.stderr, file=sys.stderr)
+        raise TaskError(f"detect-secrets failed with exit code {completed.returncode}")
+
+    report = _parse_secret_report(completed.stdout)
+    findings: list[tuple[str, int, str]] = [
+        (filename, finding["line_number"], finding["type"])
+        for filename, entries in report.items()
+        for finding in entries
+        if finding["hashed_secret"] not in known
+    ]
+
+    if not findings:
+        print(
+            f"secrets: nothing new — {len(known)} reviewed value(s) in {SECRETS_BASELINE}, "
+            f"{sum(len(entries) for entries in report.values())} finding(s), all recognised"
+        )
+        return 0
+
+    print(f"\n{len(findings)} unreviewed finding(s):", file=sys.stderr)
+    for filename, line_number, kind in sorted(findings):
+        print(f"  {filename}:{line_number}  [{kind}]", file=sys.stderr)
+    raise TaskError(
+        f"the secret scan found {len(findings)} value(s) not in {SECRETS_BASELINE}. If one is a "
+        f"real credential, remove it from the tree and rotate it. If it is genuinely not a "
+        f"secret, regenerate the baseline with `detect-secrets scan > {SECRETS_BASELINE}` and say "
+        f"in the commit message what you checked."
+    )
+
+
+def _reviewed_secret_hashes() -> set[str]:
+    """The hashes of the values in `.secrets.baseline`. Empty when there is no baseline."""
+    path = REPO_ROOT / SECRETS_BASELINE
+    if not path.exists():
+        return set()
+    return {
+        finding["hashed_secret"]
+        for entries in _parse_secret_report(path.read_text(encoding="utf-8")).values()
+        for finding in entries
+    }
+
+
+class _SecretFinding(TypedDict):
+    """The fields of one detect-secrets finding that this task reads.
+
+    Typed rather than `dict[str, object]`, because both comprehensions that consume
+    the report index into it: with `object` values mypy cannot tell that
+    `line_number` is an `int` or that `hashed_secret` is a `str`, and casting at each
+    use would hide the same uncertainty from the reader instead of resolving it once
+    here.
+    """
+
+    type: str
+    filename: str
+    hashed_secret: str
+    line_number: int
+
+
+def _parse_secret_report(document: str) -> dict[str, list[_SecretFinding]]:
+    """Parse a detect-secrets report, with an error that says what to do."""
+    try:
+        parsed = json.loads(document)
+    except json.JSONDecodeError as error:
+        raise TaskError(f"could not read the detect-secrets report as JSON: {error}") from error
+    results = parsed.get("results")
+    if not isinstance(results, dict):
+        raise TaskError("the detect-secrets report has no `results` object")
+    return results
 
 
 # ---------------------------------------------------------------------------
 # Runtime: compose stack
 # ---------------------------------------------------------------------------
 def _compose(args: Sequence[str], *, ci: bool = False) -> int:
+    """Run a compose command against the development stack, or the CI one.
+
+    The CI stack is the development file *plus* an override, not a second file that
+    restates the services: `docker-compose.ci.yml` holds only what CI changes, so
+    there is one topology and one place its settings live. See that file for why
+    `include` — the tidier-looking option — does not work here.
+
+    `-p` gives the CI stack its own compose project. Without it both stacks would be
+    project `agentcore-platform`, and `up-ci` would replace a developer's running
+    containers rather than standing beside them.
+    """
     require_docker()
-    files = ["-f", str(COMPOSE_CI_FILE if ci else COMPOSE_FILE)]
-    if ci and not COMPOSE_CI_FILE.exists():
-        raise TaskError(f"{COMPOSE_CI_FILE.name} does not exist yet (added in Stage 14)")
-    return run(["docker", "compose", *files, *args])
+    if ci:
+        if not COMPOSE_CI_FILE.exists():
+            raise TaskError(f"{COMPOSE_CI_FILE.name} is missing, so the CI stack cannot start")
+        files = ["-f", str(COMPOSE_FILE), "-f", str(COMPOSE_CI_FILE)]
+        project = ["-p", CI_PROJECT_NAME]
+    else:
+        files = ["-f", str(COMPOSE_FILE)]
+        project = []
+    return run(["docker", "compose", *files, *project, *args])
 
 
 def up(extra: Sequence[str] = ()) -> int:
@@ -124,6 +287,33 @@ def ps(extra: Sequence[str] = ()) -> int:
 def logs(extra: Sequence[str] = ()) -> int:
     """Tail stack logs. Pass a service name to narrow it, e.g. `logs agent`."""
     return _compose(["logs", "-f", "--tail=100", *extra])
+
+
+def up_ci(extra: Sequence[str] = ()) -> int:
+    """Start the CI stack: the same three services with deterministic settings.
+
+    This exists so that the stack the workflow runs is one a developer can run too.
+    `docker-compose.ci.yml` was written for CI and nothing invoked it, which made it
+    a file only CI could reach — and a topology nobody can reproduce locally is a
+    topology nobody can debug. The pins live in that file; this is only the way in.
+
+    `--wait` rather than a sleep, for the same reason the workflow uses it: it blocks
+    until every service is healthy and exits non-zero if one never is, so a broken
+    stack fails here rather than in the test that follows. It is also why this task
+    builds: a CI stack that reused stale images would test the previous commit.
+    """
+    require_env_file()
+    return _compose(["up", "-d", "--build", "--wait", *extra], ci=True)
+
+
+def down_ci(extra: Sequence[str] = ()) -> int:
+    """Stop the CI stack. Pass `-v` to drop its volumes as well."""
+    return _compose(["down", *extra], ci=True)
+
+
+def ps_ci(extra: Sequence[str] = ()) -> int:
+    """Show the CI stack's status, including healthcheck results. Read-only."""
+    return _compose(["ps", *extra], ci=True)
 
 
 def reset_mock(extra: Sequence[str] = ()) -> int:
@@ -263,10 +453,19 @@ def evaluate(extra: Sequence[str] = ()) -> int:
 # Composite and housekeeping
 # ---------------------------------------------------------------------------
 def ci(extra: Sequence[str] = ()) -> int:
-    """Reproduce the CI pipeline locally: lint, type-check, unit tests, evals."""
+    """Reproduce the CI pipeline locally: lint, type-check, unit tests, evals.
+
+    The secret scan is included because the workflow runs it, and a local `ci` that
+    skipped a gate the pipeline enforces would let exactly the mistake it guards
+    against reach the branch. Everything else the workflow does — building the
+    images, starting the stack, the arm64 cross-build — needs Docker and is
+    reachable from `up`, `test-integration` and the buildx command in
+    docs/plan/stage-14.md.
+    """
     lint()
     typecheck()
     test_unit()
+    secrets()
     evaluate(extra)
     print("\nCI pipeline passed.")
     return 0

@@ -6,21 +6,29 @@
 # makes this file — not a per-service one — the thing that decides what the
 # daemon has to hash and upload.
 #
-# Keep:  pyproject.toml, uv.lock, services/**/pyproject.toml, services/**/*.py,
-#        alembic/**, and any static assets a service needs.
-# Drop:  everything below — VCS, docs, tests, runtime data, caches, media.
+# Keep:  pyproject.toml, uv.lock, services/*/pyproject.toml, services/*/README.md,
+#        services/*/src/**, services/agent/alembic/**, the entrypoint script.
+# Drop:  everything below — VCS, docs and assignment material, tests, runtime
+#        state, caches, media.
+#
+# `services/*/README.md` is kept on purpose, and that is not obvious. Each service
+# declares `readme = "README.md"` in its own pyproject, and hatchling reads that
+# file while building the wheel — so excluding it fails the image build with
+# "Readme file does not exist: README.md" *after* the dependency layer has already
+# resolved, which looks like a dependency problem and is not one. It also has to be
+# copied in the Dockerfile; un-ignoring it here only makes that possible.
 # ============================================================================
 
 # --- VCS -------------------------------------------------------------------
 .git
 .gitignore
 .gitattributes
-.github
 
 # --- Documentation and assignment material ---------------------------------
 docs
 *.md
 !README.md
+!services/*/README.md
 AGENTCORE.md
 LICENSE
 
@@ -55,14 +63,11 @@ uv.lock.bak
 specs
 tests
 
-# --- The mock and the web service (not needed by Python service images) ----
+# --- The mock (built from its own context, so not needed in this one) ------
+# `docker compose` builds it with `context: ./mock-ticketing`, and leaving it out
+# of the root context keeps 30KB and a copy of the fixture out of every other
+# image's hash.
 mock-ticketing
-services/web/static
-services/web/*.conf
-
-# --- Node ------------------------------------------------------------------
-node_modules
-**/node_modules
 
 # --- Editor / OS noise -----------------------------------------------------
 .idea
