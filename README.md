@@ -113,7 +113,7 @@ Written for someone who has just cloned this. PowerShell on Windows; on Linux or
 ```powershell
 docker compose up -d --wait        # ticketing mock + MCP server + agent, ~20s (same as: make up)
 start http://localhost:8080/       # the page: ask something, watch it propose, approve it
-make logs                          # what the agent is doing, as it does it
+docker compose logs -f agent       # what the agent is doing, as it does it
 docker compose down                # stop; add -v to drop the data volume too
 ```
 
@@ -123,10 +123,14 @@ front-end build. `make doctor` prints what is installed, what is configured and 
 **Test it.** Three levels, none of which needs a key:
 
 ```powershell
-make test-unit                     # 446 tests in ~7s: no stack, no credentials
-make eval                          # 22 cases against its own throwaway stack, exits 1 on any failure
-make up; make test-integration     # the 4 tests that need the composed stack
+uv run python -m devtasks test-unit         # 446 tests in ~7s: no stack, no credentials
+uv run python -m devtasks eval              # 22 cases, its own stack, exit 1 on any failure
+uv run python -m devtasks test-integration  # the 4 tests that need the stack from the line above
 ```
+
+**`make` is optional and on Windows it is usually absent** — those three lines are exactly what
+`make test-unit`, `make eval` and `make test-integration` run (`make logs` is
+`docker compose logs -f agent`). Needs `uv sync --all-groups` once.
 
 Then drive the contract by hand, because that is the surface the assignment describes — two turns of
 one conversation:
