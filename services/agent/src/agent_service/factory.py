@@ -21,6 +21,12 @@ the lifespan; the routes have to exist in between. The indirection that resolves
 holder with a deliberate, named failure for the case where a request arrives before startup
 finished — which cannot normally happen, and is exactly the kind of impossibility that becomes a
 confusing ``AttributeError`` when it quietly stops being true.
+
+**There is one decision implementation, and two ways in.** A write is approved either by the
+decision route — the page's button — or by the user's next message, which is how `CONTRACT.md`
+says the platform does it. Both call the same callable built here; they differ only in whose
+database session it runs in. Building it twice is how a service ends up with a documented flow and
+an undocumented one that behave differently, with only one of them tested.
 """
 
 from __future__ import annotations
@@ -38,21 +44,28 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from agent_service.agent.execution import ToolCallFailedError, WriteExecutor
 from agent_service.agent.gate import ApprovalGate
-from agent_service.agent.handler import InvocationHandlerFactory, as_pending_approval
+from agent_service.agent.handler import (
+    DecisionApplier,
+    InvocationHandlerFactory,
+    as_pending_approval,
+)
 from agent_service.agent.inflight import InflightRegistry
 from agent_service.agent.loop import LoopLimits, ToolOutcome
 from agent_service.api.app import InvocationHandler, create_app
-from agent_service.api.approval_routes import DecisionConflictError, DecisionHandler
+from agent_service.api.approval_routes import (
+    ApprovalDecisionResult,
+    DecisionConflictError,
+    DecisionHandler,
+)
 from agent_service.api.cancel_routes import CancelHandler, CancelResult
 from agent_service.api.models import InvocationRequest, InvocationResponse, PendingApproval
 from agent_service.api.ui_routes import PendingApprovalListing
 from agent_service.config import Settings, get_settings
 from agent_service.db.base import create_session_factory, register_sqlite_pragmas
-from agent_service.db.repositories.approvals import (
-    ApprovalRepository,
-    ApprovalTransitionError,
-)
+from agent_service.db.repositories.approvals import ApprovalRepository
+from agent_service.db.repositories.traces import TraceRepository
 from agent_service.mcp.client import TicketingMcpClient, ToolCallResult
+from agent_service.observability import EXECUTION, Tracer
 from agent_service.providers.base import ModelProvider, build_provider
 from agent_service.tools.registry import ToolRegistry
 
@@ -238,6 +251,7 @@ def build_invocation_handler(
     sessions: sessionmaker[Session],
     settings: Settings,
     runs: InflightRegistry,
+    decide: DecisionApplier,
 ) -> InvocationHandler:
     """Adapt the loop factory into the one-argument handler the route expects.
 
@@ -283,6 +297,10 @@ def build_invocation_handler(
             # How long a cross-session fact stays current, passed rather than defaulted here for
             # the same reason: the setting exists, so the service is the thing that decides.
             fact_ttl_days=settings.agent_memory_fact_ttl_days,
+            # How a decision arriving as a message is applied. The same callable the decision
+            # route uses, handed the turn's own session, so the decision commits with the turn
+            # rather than in a second transaction against the same SQLite file.
+            decide=decide,
         )
         with sessions() as session:
             response = await factory(request, session)
@@ -292,41 +310,105 @@ def build_invocation_handler(
     return handle
 
 
-def build_decision_handler(
-    *,
-    runtime: Runtime,
-    sessions: sessionmaker[Session],
-) -> DecisionHandler:
-    """Adapt the approval gate into the decision handler the route expects.
+def build_decision_callable(*, runtime: Runtime, settings: Settings) -> DecisionApplier:
+    """The gate, wrapped so a decision can be applied to a session the *caller* owns.
 
-    The gate is built per request because it is bound to one session — ``for_session`` says so in
-    its name and its signature — and because the write it may perform must commit together with
-    the decision that authorised it.
+    One implementation for two entry points, and the shape is the point: the decision route passes
+    a session it opens per request, and the invocation handler passes the turn's own session so an
+    approval that arrived as a message runs inside the transaction that carried it. Two
+    implementations would be two sets of guarantees, and the second one would be the untested one.
 
     **The transition error becomes the route's conflict error.** The repository refuses a decision
-    on a row that is already decided, expired or not this user's, and raises
-    ``ApprovalTransitionError``. The route turns ``DecisionConflictError`` into a 409; without this
-    translation the same refusal would surface as a 500, telling a caller the service was broken
-    when in fact their request was simply too late. Nothing is swallowed — the cause is chained.
+    on a row that is already decided, expired, or not this user's, and raises
+    ``ApprovalTransitionError``. `ApprovalGate` translates that into ``DecisionConflictError``,
+    which the route turns into a 409 — without the translation the same refusal would surface as a
+    500, telling a caller the service was broken when in fact their request was simply too late.
+    Nothing is swallowed; the cause is chained.
+
+    **The trace is written here, once per decision, rather than by either caller.** An approval is a
+    state change that outlives the request that triggered it — a proposal may be answered long
+    after it was made — so "what happened to this approval" has to be answerable from the
+    approval's own record, not only from whichever conversation happened to be in flight.
     """
 
-    async def decide(approval_id: str, user_id: str, approved: bool) -> Any:
-        with sessions() as session:
+    async def decide(
+        session: Session, approval_id: str, user_id: str, approved: bool
+    ) -> ApprovalDecisionResult:
+        approvals = ApprovalRepository(session)
+        # Read for the trace's session id and for the span's name. ``None`` is legitimate — an id
+        # belonging to someone else is reported exactly like one that does not exist — and the gate
+        # below is what turns that into the refusal the caller sees.
+        row = approvals.get(approval_id, user_id=user_id)
+        tracer = Tracer(
+            trace_dir=settings.trace_dir,
+            session_id=row.session_id if row is not None else "",
+            user_id=user_id,
+        )
+        action = row.action if row is not None else approval_id
+
+        with tracer.span(EXECUTION, action, approved=approved) as span:
             gate = ApprovalGate.for_session(
                 session,
                 executor=WriteExecutor(
                     executor=runtime.require_executor(),
-                    approvals=ApprovalRepository(session),
+                    approvals=approvals,
                 ),
             )
             try:
                 result = await gate.decide(approval_id, user_id, approved)
-            except ApprovalTransitionError as exc:
-                raise DecisionConflictError(str(exc)) from exc
+            except DecisionConflictError as exc:
+                span.attributes["outcome"] = "refused"
+                # Written even for a refusal: "why did my approval do nothing" is a question about
+                # state, and this row is the answer to it.
+                TraceRepository(session).record(
+                    tracer.finish(status="error", error=str(exc)),
+                    user_id=user_id,
+                )
+                raise
+            span.attributes["outcome"] = result.outcome
+
+        TraceRepository(session).record(
+            tracer.finish(
+                status="error" if result.outcome == "failed" else "ok",
+                error=result.detail if result.outcome == "failed" else None,
+                # One tool call when a write ran, none otherwise: a declined decision executes
+                # nothing, and the count is how that shows up in a trace listing.
+                tool_calls=1 if result.outcome == "executed" else 0,
+            ),
+            user_id=user_id,
+        )
+        return result
+
+    return decide
+
+
+def build_decision_handler(
+    *,
+    decide: DecisionApplier,
+    sessions: sessionmaker[Session],
+) -> DecisionHandler:
+    """Adapt the shared decision applier into the one-argument handler the route expects.
+
+    The mismatch this resolves is the session: the route's handler takes an approval id, a user and
+    a verdict, while the applier also needs a session to work in. This opens one per decision and
+    commits it, which is what makes approving atomic — the decision row and the write it
+    authorises are committed together, or not at all.
+    """
+
+    async def handle(approval_id: str, user_id: str, approved: bool) -> ApprovalDecisionResult:
+        with sessions() as session:
+            try:
+                result = await decide(session, approval_id, user_id, approved)
+            except DecisionConflictError:
+                # Committed before the refusal propagates, so the trace explaining it survives.
+                # Nothing else in this transaction needs rolling back — a refused decision changes
+                # no row.
+                session.commit()
+                raise
             session.commit()
             return result
 
-    return decide
+    return handle
 
 
 def build_pending_listing(
@@ -426,6 +508,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # invocation handler writes to it and the cancel handler reads from it — and a per-request
     # instance would mean the reader never saw what the writer wrote.
     runs = InflightRegistry()
+    # Built once and given to both entry points — the decision route and the invocation handler — so
+    # a button and a sentence cannot diverge in what they allow, record or trace. See
+    # `build_decision_callable`.
+    decide = build_decision_callable(runtime=runtime, settings=resolved)
 
     app = create_app(
         resolved,
@@ -435,8 +521,9 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             sessions=sessions,
             settings=resolved,
             runs=runs,
+            decide=decide,
         ),
-        decision_handler=build_decision_handler(runtime=runtime, sessions=sessions),
+        decision_handler=build_decision_handler(decide=decide, sessions=sessions),
         pending_approvals=build_pending_listing(sessions=sessions),
         cancel_handler=build_cancel_handler(runs=runs),
         lifespan=build_lifespan(resolved, runtime),

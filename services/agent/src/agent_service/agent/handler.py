@@ -22,13 +22,15 @@ stop reason cannot reach the wire unnamed.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from agent_service.agent.budget import Deadline
 from agent_service.agent.inflight import InflightRegistry
+from agent_service.api.approval_routes import ApprovalDecisionResult, DecisionConflictError
 from agent_service.api.models import (
     InvocationRequest,
     InvocationResponse,
@@ -41,12 +43,19 @@ from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.db.repositories.facts import FactRepository
 from agent_service.db.repositories.sessions import SessionRepository
 from agent_service.db.repositories.traces import TraceRepository
-from agent_service.observability import MODEL_TURN, Tracer
+from agent_service.observability import MEMORY, MODEL_TURN, Tracer
 from agent_service.providers.base import Message, ModelProvider
 from agent_service.tools.registry import ToolRegistry
 
-from . import memory
-from .loop import AgentLoop, LoopLimits, ToolCallRecord as LoopCallRecord, ToolExecutor, TurnResult
+from . import decisions, memory
+from .loop import (
+    AgentLoop,
+    LoopLimits,
+    ToolCallRecord as LoopCallRecord,
+    ToolExecutor,
+    ToolOutcomeValue,
+    TurnResult,
+)
 
 #: Where traces go when the factory is not told otherwise. Relative rather than absolute so a
 #: container can mount it, and overridable so a test never writes to the real directory.
@@ -84,6 +93,25 @@ UNMAPPED_STOP_REASON: StopReason = "error"
 #: the approval workflow reported its own proposal as a failed call, so anything counting errors
 #: counted normal approvals, and any client rendering the list painted the proposal red.
 FAILED_OUTCOMES = frozenset({"failed", "refused"})
+
+#: How a decision that arrived as a *message* is applied: given the session the caller is already
+#: using, an approval id, a user and a verdict, do what the decision route does.
+#:
+#: The session is a parameter rather than something this handler owns, and that is the design: one
+#: callable serves the button and the sentence, so a message cannot reach the gate by a different
+#: path than a click does — and the decision runs inside the turn's own transaction rather than
+#: opening a second writer on the same SQLite file.
+DecisionApplier = Callable[[Session, str, str, bool], Awaitable[ApprovalDecisionResult]]
+
+#: The decision route's outcome vocabulary in the loop's terms, so one response field can describe
+#: both "a tool ran" and "a person answered". ``declined`` becomes ``refused`` because that is what
+#: this service calls a call it did not make, and the two facts are the same one: no write
+#: happened and nothing broke.
+DECISION_OUTCOMES: dict[str, ToolOutcomeValue] = {
+    "executed": "executed",
+    "failed": "failed",
+    "declined": "refused",
+}
 
 #: The prompt the model is given, before any user text. Written here rather than in a config
 #: file because it encodes product decisions — what the agent may claim about its own
@@ -164,6 +192,33 @@ def to_invocation_response(
     )
 
 
+def _wire_record(
+    *,
+    name: str,
+    arguments: dict[str, Any],
+    outcome: ToolOutcomeValue,
+    detail: str,
+    duration_ms: int | None = None,
+) -> ToolCallRecord:
+    """One call as the response carries it, in both vocabularies at once.
+
+    The single place a `ToolCallRecord` is built, so ``input``/``status`` cannot drift from
+    ``arguments``/``outcome``: the two pairs are one fact under the contract's names and this
+    service's, and filling them in from two different functions is exactly how a service ends up
+    telling one caller two things about one call.
+    """
+    return ToolCallRecord(
+        name=name,
+        arguments=dict(arguments),
+        input=dict(arguments),
+        outcome=outcome,
+        status=outcome,
+        duration_ms=duration_ms,
+        is_error=outcome in FAILED_OUTCOMES,
+        summary=detail,
+    )
+
+
 def _record(record: LoopCallRecord) -> ToolCallRecord:
     """One loop record as a contract record.
 
@@ -178,13 +233,42 @@ def _record(record: LoopCallRecord) -> ToolCallRecord:
     never from the tool's text: keying on a sentence would make this depend on wording the MCP
     layer owns, and a reworded error would silently start reading as a success.
     """
-    return ToolCallRecord(
+    return _wire_record(
         name=record.call.name,
         arguments=dict(record.call.arguments),
         outcome=record.outcome,
-        is_error=record.outcome in FAILED_OUTCOMES,
-        summary=record.detail,
+        detail=record.detail,
+        duration_ms=record.duration_ms,
     )
+
+
+def _decision_sentence(action: str, approved: bool, outcome: ToolOutcomeValue, detail: str) -> str:
+    """What a user reads after answering a proposal with a message.
+
+    Written as a sentence rather than echoing the route's JSON, because this reply lands in the
+    same conversation as the word "yes" that produced it — and a person who answered a question
+    should be told in one line what their answer did, or did not do.
+    """
+    if outcome == "executed":
+        return f"Done — I ran {action}. {detail}".strip()
+    if outcome == "failed":
+        return f"I ran {action} and the ticketing system refused it. {detail}".strip()
+    if not approved:
+        return detail or f"You said no, so {action} was not run."
+    return detail or f"I could not run {action}."
+
+
+def _total_tokens(usage: Any) -> int:
+    """The token count to record, or 0 when the provider reported none.
+
+    ``Usage`` is the provider's own type and is carried through the loop untouched (ADR-0002:
+    token counts are recorded, never interpreted). A provider with nothing to report yields 0,
+    which is the honest number rather than an estimate this service invented — and it is why the
+    trace documentation says plainly that the scripted provider has no token counts to give.
+    """
+    if usage is None:
+        return 0
+    return int(getattr(usage, "input_tokens", 0)) + int(getattr(usage, "output_tokens", 0))
 
 
 def as_pending_approval(approval: Approval) -> PendingApproval:
@@ -202,6 +286,11 @@ def as_pending_approval(approval: Approval) -> PendingApproval:
         approval_id=approval.id,
         tool_name=approval.action,
         arguments=dict(approval.payload),
+        # The contract's example names, carrying the same values. See `ToolCallRecord.input`: the
+        # page and the eval scorer read `tool_name`/`arguments`, a client written against the
+        # contract's example reads `action`/`input`, and both are true statements about one row.
+        action=approval.action,
+        input=dict(approval.payload),
         summary=(
             f"The agent wants to call {approval.action}. Approving this runs it with exactly "
             f"the arguments shown."
@@ -232,6 +321,7 @@ class InvocationHandlerFactory:
         runs: InflightRegistry | None = None,
         turn_budget_s: float = DEFAULT_TURN_BUDGET_S,
         fact_ttl_days: int | None = None,
+        decide: DecisionApplier | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -253,6 +343,10 @@ class InvocationHandlerFactory:
         #: How long a remembered fact stays current. ``None`` leaves the repository's default, so
         #: a caller that does not care about memory lifetimes need not pass one.
         self._fact_ttl_days = fact_ttl_days
+        #: How a decision arriving as a *message* is applied. Optional so this factory is still
+        #: constructible without the gate: with none installed, an affirmative message is simply a
+        #: message, which is how this service behaved before the contract's flow was supported.
+        self._decide = decide
 
     async def __call__(
         self,
@@ -285,6 +379,34 @@ class InvocationHandlerFactory:
         sessions.ensure(session_id, user_id=request.user_id)
         history = sessions.history(session_id, user_id=request.user_id)
 
+        # Does this conversation already owe the user an answer? `CONTRACT.md` puts the decision in
+        # the next message, so this is checked before the model is involved at all — and it is
+        # checked here rather than by the model, because a write must never become reachable
+        # through a provider choosing to paraphrase an affirmative.
+        approve = self._decide
+        outstanding = ApprovalRepository(session).pending(
+            session_id=session_id, user_id=request.user_id
+        )
+        if outstanding and approve is not None:
+            verdict = decisions.classify(request.prompt)
+            if verdict is not None:
+                return await self._decide_and_answer(
+                    request=request,
+                    session=session,
+                    sessions=sessions,
+                    approval=outstanding[0],
+                    approved=verdict == "approve",
+                    decide=approve,
+                )
+
+        tracer = Tracer(
+            trace_dir=self._trace_dir,
+            session_id=session_id,
+            user_id=request.user_id,
+            provider=type(self._provider).__name__,
+            on_write_failure=self._trace_warnings,
+        )
+
         # What this person has said in *earlier* conversations. Read per turn rather than cached,
         # because a fact can be learned, forgotten or expire between two requests, and a cached
         # copy would keep answering with something the store no longer holds.
@@ -295,6 +417,10 @@ class InvocationHandlerFactory:
         # summarised, quoted back, and eventually stored anew as a fact about them.
         fact_store = FactRepository(session)
         known_facts = fact_store.recall(user_id=request.user_id)
+        # Recorded as a count, not as the facts themselves. What was recalled is already in the
+        # prompt and in the facts table, and a trace is the last place a copy of a user's name
+        # should accumulate.
+        tracer.add(MEMORY, "recall_facts", facts=len(known_facts))
 
         # Registered before the loop runs, so a cancel arriving at any point during the turn finds
         # a token to set. Registering after would leave a window in which the endpoint answers
@@ -318,14 +444,10 @@ class InvocationHandlerFactory:
             system_prompt=memory.with_facts(self._system_prompt, known_facts),
             deadline=Deadline(budget_s=self._turn_budget_s),
             cancel=run.token if run is not None else None,
-        )
-
-        tracer = Tracer(
-            trace_dir=self._trace_dir,
-            session_id=session_id,
-            user_id=request.user_id,
-            provider=type(self._provider).__name__,
-            on_write_failure=self._trace_warnings,
+            # The loop records a span per tool call and one per proposal. Handed in rather than
+            # imported by the loop, so the loop's behaviour never depends on observability being
+            # installed — and so a unit test drives it with no trace directory at all.
+            spans=tracer,
         )
 
         try:
@@ -347,13 +469,17 @@ class InvocationHandlerFactory:
         # Learned from this turn, and stored after it so a fact is only ever recorded for a turn
         # that is also in the transcript. Only the user's own prompt is read — not the assistant's
         # reply and not a tool result — which is the whitelist's real job; see `agent/memory.py`.
-        memory.remember(
+        stated = memory.remember(
             fact_store,
             user_id=request.user_id,
             session_id=session_id,
             prompt=request.prompt,
             ttl_days=self._fact_ttl_days,
         )
+        if stated:
+            # The keys only. What was learned is in the facts table; the trace records that
+            # something was, without becoming a second home for it.
+            tracer.add(MEMORY, "remember_facts", keys=",".join(sorted(stated)))
 
         # Recorded after the turn is stored, so a trace row never describes a turn the
         # conversation does not contain. If storing the turn raised, there would be no trace
@@ -365,8 +491,81 @@ class InvocationHandlerFactory:
                 error=result.text if result.stop_reason == "error" else None,
                 model_turns=result.steps,
                 tool_calls=len(result.tool_calls),
+                # Carried through from the provider rather than inferred. Zero is a real answer
+                # here — the scripted provider reports no usage — and the trace documentation says
+                # so, rather than leaving a reader to wonder why the column is always empty.
+                total_tokens=_total_tokens(result.usage),
             ),
             user_id=request.user_id,
         )
 
-        return to_invocation_response(result, session_id=session_id)
+        response = to_invocation_response(result, session_id=session_id)
+        if response.pending_approval is None and outstanding:
+            # A proposal from an *earlier* turn is still waiting. Carried on this response because
+            # the loop only knows what it proposed itself, while the row outlives the turn that
+            # created it — so a client that renders this field keeps showing what needs a human,
+            # including after a digression that proposed nothing.
+            response = response.model_copy(
+                update={"pending_approval": as_pending_approval(outstanding[0])}
+            )
+        return response
+
+    async def _decide_and_answer(
+        self,
+        *,
+        request: InvocationRequest,
+        session: Session,
+        sessions: SessionRepository,
+        approval: Approval,
+        approved: bool,
+        decide: DecisionApplier,
+    ) -> InvocationResponse:
+        """Apply a decision that arrived as a message, and answer in the user's own words.
+
+        The decision goes through the *same* callable the decision route uses, with the turn's own
+        session — so a sentence and a button produce the same row transitions, the same execution
+        and the same trace, and neither can drift from the other without a test failing.
+
+        Nothing here decides whether a write may run. `ApprovalGate` and the repository do that,
+        and if they refuse — an expired proposal, or one already decided — the refusal is reported
+        as a sentence rather than raised. The turn itself completed, and a 409 in reply to a
+        friendly "yes" would tell the user their sentence was malformed, which it was not.
+        """
+        outcome: ToolOutcomeValue = "refused"
+        detail = ""
+        try:
+            result = await decide(session, approval.id, request.user_id, approved)
+        except DecisionConflictError as exc:
+            detail = f"That approval can no longer be decided: {exc}"
+        else:
+            outcome = DECISION_OUTCOMES.get(result.outcome, "executed")
+            detail = result.detail
+
+        text = _decision_sentence(approval.action, approved, outcome, detail)
+        record = _wire_record(
+            name=approval.action,
+            arguments=dict(approval.payload),
+            outcome=outcome,
+            detail=detail,
+        )
+
+        # Stored like any other turn, so the next turn of this conversation sees both the request
+        # and what came of it. A decision missing from the transcript would make the following
+        # question unanswerable — the same reason a proposal is stored.
+        sessions.append_all(
+            session_id=approval.session_id,
+            user_id=request.user_id,
+            messages=(
+                Message(role="user", content=request.prompt),
+                Message(role="assistant", content=text),
+            ),
+        )
+
+        return InvocationResponse(
+            output=text,
+            tool_calls=[record],
+            pending_approval=None,
+            session_id=approval.session_id,
+            stop_reason="completed",
+            steps=0,
+        )

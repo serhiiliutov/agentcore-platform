@@ -8,8 +8,9 @@ Each test pins something a caller depends on:
 
 * ``/ping`` answers exactly ``Healthy`` or ``HealthyBusy``, and reports busy while work is
   in flight, because a supervisor uses that to decide whether to keep routing.
-* ``/invocations`` rejects a body without ``user_id``, which is what makes the user-scoped
-  memory reads downstream safe rather than merely well-intentioned.
+* ``/invocations`` files a body without ``user_id`` under one documented scope rather than
+  rejecting it, because `CONTRACT.md`'s own smoke test sends no user id — and every user-scoped
+  read downstream still has an identity to be scoped by.
 * A turn that ends without an installed loop answers 501, not 500 — "not wired" and "broken"
   are different claims and a monitor should not confuse them.
 * The runtime's session header wins over the body field, because a platform that sets a
@@ -25,7 +26,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 
 from agent_service.api.app import SESSION_HEADER, create_app
-from agent_service.api.models import InvocationRequest, InvocationResponse
+from agent_service.api.models import DEFAULT_USER_ID, InvocationRequest, InvocationResponse
 from agent_service.config import Settings
 
 #: Any database URL will do: nothing in these tests opens one. A full SQLAlchemy URL is
@@ -103,11 +104,48 @@ async def test_ping_reports_busy_while_an_invocation_is_in_flight(settings: Sett
 # --- /invocations: request validation ----------------------------------------
 
 
-async def test_invocations_requires_a_user_id(settings: Settings) -> None:
-    """Without it, nothing user-scoped could be read — so it is a 422, not a default."""
-    app = create_app(settings)
+async def test_invocations_defaults_an_absent_user_id(settings: Settings) -> None:
+    """The contract's own smoke-test body carries no user id, and must still be answerable.
+
+    The scope is not "nothing": it is `DEFAULT_USER_ID`, a real identity for every user-scoped read
+    downstream — one shared bucket, which is the honest alternative to a 422. The reason it is a
+    default at all is concrete: `CONTRACT.md` documents ``{"prompt": ...}`` as the smoke test, and
+    a service whose smoke test fails validation reads as broken before it reads as careful.
+    """
+    seen: list[str] = []
+
+    async def handler(request: InvocationRequest) -> InvocationResponse:
+        seen.append(request.user_id)
+        return InvocationResponse(session_id=request.session_id or "s-1")
+
+    app = create_app(settings, invocation_handler=handler)
 
     response = await _post(app, {"prompt": "where is my ticket?"})
+
+    assert response.status_code == 200
+    assert seen == [DEFAULT_USER_ID]
+
+
+async def test_invocations_uses_the_user_id_it_is_given(settings: Settings) -> None:
+    """A supplied id is passed through untouched; the default only fills a gap."""
+    seen: list[str] = []
+
+    async def handler(request: InvocationRequest) -> InvocationResponse:
+        seen.append(request.user_id)
+        return InvocationResponse(session_id=request.session_id or "s-1")
+
+    app = create_app(settings, invocation_handler=handler)
+
+    await _post(app, {"prompt": "hi", "user_id": "alice"})
+
+    assert seen == ["alice"]
+
+
+async def test_invocations_rejects_an_empty_user_id(settings: Settings) -> None:
+    """An empty string is a client bug, not an omission — so it is refused rather than scoped."""
+    app = create_app(settings)
+
+    response = await _post(app, {"prompt": "hi", "user_id": ""})
 
     assert response.status_code == 422
 

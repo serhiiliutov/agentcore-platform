@@ -79,13 +79,39 @@ deadline that a human's response does not respect. Ending the turn is also what 
 `stop_reason` honest: `awaiting_approval` is a *successful* turn that is waiting, not an error, and
 `stop_reason` is never inferred from which fields happen to be populated.
 
-This is also why the decision route exists as its own endpoint rather than as an answer to a
-prompt. `CONTRACT.md` suggests the answer may arrive as the next `/invocations` call, and a
-conversational "yes" does work — but the route is what the page uses, because a button that
-executes a specific approval id cannot be confused with a message that happens to contain the word
-"yes". (On AgentCore this endpoint is not part of the Runtime contract and would need to become
-either an invocation or a gateway route; that is item 3 in
-[`AGENTCORE.md`](../../AGENTCORE.md).)
+### Two ways in, one gate
+
+`CONTRACT.md` says the answer arrives as the next `/invocations` call, and the page needs a button
+that acts on a *specific* approval. Both are supported, and both reach the same gate — which is the
+only part of this that is not a matter of taste:
+
+```
+POST /invocations                        {"prompt": "yes, go ahead"}     ← the contract's flow
+POST /invocations/approvals/{id}/decide  {"approved": true}              ← the page's button
+        │                                        │
+        └───────────────► ApprovalGate.decide ◄──┘   (one implementation, one row, one write)
+```
+
+The message path is `agent/decisions.py`: a pure function of the text, with a closed vocabulary and
+the first word deciding the polarity. *"yes, go ahead"* approves; *"yes, but find me the printer
+ticket first"* is read as unrelated rather than as consent, because acting on it would be a guess
+about what the user meant. **Unrelated is a first-class answer** — the proposal stays pending, the
+turn is answered normally, and the still-outstanding proposal is carried on the response so a client
+keeps showing the user what is waiting for them.
+
+The row is the authority either way in: whoever decides, execution reads the stored `action` and
+`payload` and never the message that triggered it. The pairing is wired once, in
+`factory.py::build_decision_callable`, so there is no second path to a write to keep in step.
+
+Three eval cases assert the three outcomes over the real contract — `approval_by_message`,
+`decline_by_message` and `unrelated_message_keeps_the_proposal` — and
+`tests/unit/test_message_approval.py` asserts them against the same gate the button uses, including
+the case where no gate is installed at all: the seam is optional, and its absence means the message
+is just a message rather than a write nobody authorised.
+
+(On AgentCore the decision route is not part of the Runtime contract and would need to become either
+an invocation or a gateway route; that is item 3 in [`AGENTCORE.md`](../../AGENTCORE.md). The message
+path needs nothing — it is an ordinary invocation.)
 
 ## What makes it survive a restart
 
@@ -120,7 +146,9 @@ interface.
 
 ## Expiry
 
-`expires_at` is set when the proposal is created (`AGENT_APPROVAL_TTL_MINUTES`, 30 by default) and
+`expires_at` is set when the proposal is created (`AGENT_APPROVAL_TTL_S`, 1800 by default — the
+variable this document named as `..._TTL_MINUTES` for several stages after the code had moved to
+seconds, which is the kind of drift a reader cannot detect and a grep would have caught) and
 evaluated when a decision arrives: a `pending` row whose deadline has passed is moved to `expired`
 instead of being executed late. An approval is a decision about *now* — a proposal left untouched
 for a day should not create a ticket tomorrow, when the ticket may be pointless or the person may

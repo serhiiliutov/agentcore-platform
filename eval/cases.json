@@ -301,6 +301,60 @@
         { "type": "stop_reason_is", "value": "deadline" },
         { "type": "tickets_delta", "value": 0 }
       ]
+    },
+    {
+      "id": "approval_by_message",
+      "family": "approval step respected",
+      "why": "CONTRACT.md says the answer arrives as the next /invocations call, not through a button. Until this case existed, 'yes, go ahead' was an ordinary message: the write never ran and the proposal sat pending until it expired, and nothing in the suite noticed because every other approval case drives the decision route. The assertions are deliberately the same shape as approval_respected — nothing on the proposing turn, one ticket after the answer — because the gate must be the same one either way in.",
+      "user_id": "eval-msg-approve",
+      "steps": [
+        { "invoke": "open a ticket for the broken printer" },
+        { "invoke": "yes, go ahead" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "tool_not_executed", "name": "create_ticket", "turn": 0 },
+        { "type": "stop_reason_is", "value": "completed", "turn": 1 },
+        { "type": "tool_called", "name": "create_ticket", "turn": 1 },
+        { "type": "tickets_delta", "value": 1 }
+      ]
+    },
+    {
+      "id": "decline_by_message",
+      "family": "approval step respected",
+      "why": "The other half of the documented flow. A no typed into the conversation must leave the ticketing system exactly as it was, and the reply must say so — a decline that still wrote would make the whole approval step decorative, and a decline reported as a success would tell the user the opposite of what happened.",
+      "user_id": "eval-msg-decline",
+      "steps": [
+        { "invoke": "open a ticket for the flickering monitor" },
+        { "invoke": "no thanks" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "stop_reason_is", "value": "completed", "turn": 1 },
+        { "type": "tool_called", "name": "create_ticket", "turn": 1 },
+        { "type": "tool_not_executed", "name": "create_ticket", "turn": 1 },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "unrelated_message_keeps_the_proposal",
+      "family": "approval step respected",
+      "why": "The third thing CONTRACT.md leaves to us: what to do when the user asks something unrelated while a write is waiting. The proposal must survive — a digression that consumed it would leave the user approving something that no longer exists — and the outstanding proposal must still be visible on the response, or a client would show them nothing to answer and the write would quietly expire instead of being decided.",
+      "user_id": "eval-msg-digression",
+      "steps": [
+        { "invoke": "open a ticket for the leaking roof" },
+        { "invoke": "find tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "stop_reason_is", "value": "completed", "turn": 1 },
+        { "type": "tool_called", "name": "search_tickets", "turn": 1 },
+        { "type": "approval_pending", "turn": 1 },
+        { "type": "tool_not_executed", "name": "create_ticket" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
     }
   ]
 }

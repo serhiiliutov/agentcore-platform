@@ -21,8 +21,8 @@ trust. The driver is [`devtasks/chrome.py`](../../devtasks/chrome.py); the seque
 
 ## The eval output
 
-[`eval-run.txt`](eval-run.txt) is the console transcript of the committed eval run — **19 of 19
-cases passed in 87.7s** — recorded with `make eval` piped through `Tee-Object`. The same run's
+[`eval-run.txt`](eval-run.txt) is the console transcript of the committed eval run — **22 of 22
+cases passed in 46.8s** — recorded with `make eval` piped through `Tee-Object`. The same run's
 formatted report is [`eval/results/latest.md`](../../eval/results/latest.md), and a summary table
 is in the [README](../../README.md).
 

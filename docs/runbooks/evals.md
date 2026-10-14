@@ -7,7 +7,7 @@ families, the latest results, and what it does not catch — see section e of th
 ## Running it
 
 ```bash
-make eval                          # all 19 cases, table to stdout, results written to eval/results/
+make eval                          # all 22 cases, table to stdout, results written to eval/results/
 uv run python -m eval              # the same thing without make
 uv run python -m eval --only memory # cases whose id contains "memory"
 uv run python -m eval --quiet       # the table only, no per-case line as they run

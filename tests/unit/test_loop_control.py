@@ -153,17 +153,21 @@ def _loop(
     deadline: Deadline | None = None,
     cancel: CancelToken | None = None,
     max_steps: int = 8,
+    spans: Any = None,
+    approvals: Any = None,
+    writes: Sequence[str] = (),
 ) -> AgentLoop:
     return AgentLoop(
         provider=provider,
-        tools=_registry(),
+        tools=_registry(writes=writes),
         executor=executor or FakeExecutor(),
-        approvals=cast(ApprovalRepository, UnusedApprovals()),
+        approvals=cast(ApprovalRepository, approvals or UnusedApprovals()),
         session_id="sess-1",
         user_id="alice",
         limits=LoopLimits(max_steps=max_steps),
         deadline=deadline,
         cancel=cancel,
+        spans=spans,
     )
 
 
@@ -406,3 +410,172 @@ async def test_a_loop_with_no_deadline_grants_no_slice() -> None:
     await _loop(FakeProvider([_read_call()]), executor=executor).run("find it")
 
     assert executor.slices == [None]
+
+
+# --- what the loop records ----------------------------------------------------
+
+
+class RecordingSpan:
+    """One span as this test sees it: the attributes are the point, so they are a plain dict."""
+
+    def __init__(self, kind: str, name: str, attributes: dict[str, Any]) -> None:
+        self.kind = kind
+        self.name = name
+        self.attributes = attributes
+
+    def __enter__(self) -> RecordingSpan:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        """Returns nothing, so an exception inside a recorded block still propagates.
+
+        A recorder that swallowed an exception to keep its own bookkeeping tidy would hide the
+        failure from the loop, which is the opposite of what a recorder is for.
+        """
+
+
+class RecordingSpans:
+    """A `SpanRecorder` that keeps everything, so a test can assert on what reached it.
+
+    Hand-written rather than a `Tracer` because a trace directory and a JSONL file are not what is
+    being tested: the loop must record the right *facts*, and where they are written afterwards is
+    the tracer's own concern, covered by `test_observability.py`.
+    """
+
+    def __init__(self) -> None:
+        self.spans: list[RecordingSpan] = []
+        self.events: list[dict[str, Any]] = []
+
+    def span(self, kind: str, name: str, **attributes: Any) -> RecordingSpan:
+        opened = RecordingSpan(kind, name, dict(attributes))
+        self.spans.append(opened)
+        return opened
+
+    def add(self, kind: str, name: str, **attributes: Any) -> None:
+        self.events.append({"kind": kind, "name": name, **attributes})
+
+
+class RecordingApprovals:
+    """A repository that records proposals instead of storing them.
+
+    The loop only reads ``id``, ``action``, ``payload`` and ``state`` off a proposal, so a real row
+    would prove nothing extra here — the database is exercised by `test_approval_gate.py` and by
+    every eval case that proposes a write.
+    """
+
+    def __init__(self) -> None:
+        self.proposed: list[dict[str, Any]] = []
+
+    def propose(self, **fields: Any) -> Any:
+        self.proposed.append(fields)
+        return RecordingProposal(fields)
+
+
+class RecordingProposal:
+    def __init__(self, fields: dict[str, Any]) -> None:
+        self.id = f"approval-{len(fields.get('action', ''))}"
+        self.action = str(fields.get("action", ""))
+        self.payload = dict(fields.get("payload", {}))
+        self.state = "pending"
+
+
+def _write_call(name: str = "create_ticket") -> AssistantTurn:
+    """A reply that asks for one write, which the loop must propose rather than perform."""
+    return AssistantTurn(
+        text="I will open a ticket for that.",
+        tool_calls=(
+            ToolCallRequest(
+                id="call-w",
+                name=name,
+                arguments={"title": "a title", "client_request_id": "key-1"},
+            ),
+        ),
+        stop_reason="tool_use",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_tool_call_is_recorded_with_its_arguments_and_outcome() -> None:
+    """The requirement the trace could not previously satisfy: what was called, and with what.
+
+    Asserted at the loop rather than at the trace file because the loop is what knows — the file is
+    only where it ends up. A tool call that reached the trace without its arguments would answer
+    "something was searched" rather than "the printer was searched", which is the question anyone
+    opens a trace with.
+    """
+    spans = RecordingSpans()
+    executor = FakeExecutor()
+
+    result = await _loop(FakeProvider([_read_call()]), executor=executor, spans=spans).run(
+        "find it"
+    )
+
+    assert [record.kind for record in spans.spans] == ["tool_call"]
+    recorded = spans.spans[0]
+    assert recorded.name == "search_tickets"
+    assert recorded.attributes["arguments"] == {"q": "printer"}
+    assert recorded.attributes["outcome"] == "executed"
+    assert recorded.attributes["is_error"] is False
+    # And the same measurement reaches the response, because a caller reading only the response
+    # should not have to open a trace file to find which call was slow.
+    assert result.tool_calls[0].duration_ms is not None
+    assert result.tool_calls[0].duration_ms >= 0
+
+
+@pytest.mark.asyncio
+async def test_a_failed_call_is_recorded_as_failed() -> None:
+    """The refusal is recorded as a refusal, which is the fact the trace exists to preserve.
+
+    A span that recorded "tool_call search_tickets" with no outcome would make a search that the
+    backend rejected indistinguishable from one that returned rows — the same confusion the
+    response's ``is_error`` was introduced to fix, one layer down.
+    """
+    spans = RecordingSpans()
+    executor = FakeExecutor()
+    executor.failing = {"search_tickets"}
+
+    await _loop(FakeProvider([_read_call()]), executor=executor, spans=spans).run("find it")
+
+    recorded = spans.spans[0]
+    assert recorded.attributes["outcome"] == "failed"
+    assert recorded.attributes["is_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_proposal_is_recorded_as_an_event_with_the_arguments() -> None:
+    """What was proposed, and with what — recorded at the moment it became a proposal.
+
+    The row is the authority on what will run, and the span is the record of what the *agent* asked
+    for. Keeping both means a later "this is not what I approved" question can be answered by
+    comparing two artefacts rather than by re-running the turn.
+    """
+    spans = RecordingSpans()
+    approvals = RecordingApprovals()
+
+    result = await _loop(
+        FakeProvider([_write_call()]),
+        spans=spans,
+        approvals=approvals,
+        writes=["create_ticket"],
+    ).run("open a ticket")
+
+    assert result.stop_reason == "proposed"
+    assert spans.spans == [], "a proposal is not a call: nothing was executed"
+    assert [event["kind"] for event in spans.events] == ["proposal"]
+    assert spans.events[0]["name"] == "create_ticket"
+    assert spans.events[0]["arguments"]["title"] == "a title"
+    assert spans.events[0]["state"] == "pending"
+    assert approvals.proposed[0]["payload"]["client_request_id"] == "key-1"
+
+
+@pytest.mark.asyncio
+async def test_a_loop_with_no_recorder_still_times_its_calls() -> None:
+    """The recorder is optional; the measurement is not.
+
+    These are deliberately separate, and this test is what keeps them separate: recording is about
+    observability being installed, while ``duration_ms`` is part of the response the contract
+    describes. A run with no tracer must still tell its caller how long each call took.
+    """
+    result = await _loop(FakeProvider([_read_call()])).run("find it")
+
+    assert result.tool_calls[0].duration_ms is not None

@@ -63,11 +63,22 @@ uv.lock.bak
 specs
 tests
 
-# --- The mock (built from its own context, so not needed in this one) ------
-# `docker compose` builds it with `context: ./mock-ticketing`, and leaving it out
-# of the root context keeps 30KB and a copy of the fixture out of every other
-# image's hash.
-mock-ticketing
+# --- The mock -------------------------------------------------------------
+# `docker compose` builds it with `context: ./mock-ticketing`, and leaving it out of
+# the root context keeps 30KB and a copy of the fixture out of the service images'
+# hashes.
+#
+# Three files are re-included, and only for the single-container image at the
+# repository root (`Dockerfile`), which has to start the mock itself because
+# `CONTRACT.md`'s smoke test runs one container. The directory is excluded as
+# `mock-ticketing/*` rather than `mock-ticketing` on purpose: Docker cannot
+# re-include a file whose parent directory is excluded outright, and excluding the
+# directory itself made these three lines silently do nothing — a build that failed
+# later with "COPY failed: file not found", far from the ignore rule that caused it.
+mock-ticketing/*
+!mock-ticketing/app.py
+!mock-ticketing/seed.py
+!mock-ticketing/requirements.txt
 
 # --- Editor / OS noise -----------------------------------------------------
 .idea

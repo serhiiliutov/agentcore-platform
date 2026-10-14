@@ -56,7 +56,7 @@ services *around* the agent, not the agent itself.
    │                                                                              │
    │   ┌────────────────────────────┐        ┌───────────────────────────────┐     │
    │   │ Observability              │        │ Evaluations                   │     │
-   │   │  OTEL traces + CloudWatch; │        │  the 19 cases, re-run against │     │
+   │   │  OTEL traces + CloudWatch; │        │  the 22 cases, re-run against │     │
    │   │  replaces the JSONL tracer │        │  sessions and traces          │     │
    │   └────────────────────────────┘        └───────────────────────────────┘     │
    │                                                                              │
@@ -163,13 +163,26 @@ a request to, which is in the checklist.
 
 ### Observability — the same traces, in the standard format
 
-What I trace locally is already the right set of things, and it is what a reviewer of a bad run
-needs: one trace per turn, spans for each model call, tool call (with arguments and result), retry,
-approval decision and provider call, and for each span the duration, the token counts and the error
-if any. The format is mine — a small span model written to JSONL — because a local Langfuse or an
-OTEL collector would have been more moving parts than the assignment needed, and the trace had to
-work in a container with no extra service. [`architecture/observability.md`](architecture/observability.md)
-describes it and walks through using a trace to explain a bad run.
+What I trace locally is the set of things a reviewer of a bad run needs, and this paragraph was
+**corrected against the code rather than written from intention** — an earlier draft claimed
+per-model-call and retry spans that the service did not emit. What it emits now, and this is
+checkable in `observability/spans.py` and its call sites: one trace per turn, with a span around the
+invocation; **a span per tool call carrying its arguments, its outcome and its duration**; an event
+when a write is proposed; events when a fact is recalled or remembered; and an `execution` span on
+the approval decision, which is a *separate request* and therefore a separate trace. Token counts are
+carried through from the provider whenever it reports them — the deterministic provider used by the
+evals and the screenshots reports none, so its rows read zero, which
+[`architecture/observability.md`](architecture/observability.md) states plainly rather than leaving a
+reader to wonder.
+
+Two things are deliberately *not* recorded, and naming them is the point of this paragraph: there is
+one span per invocation rather than one per provider round trip, and retries are not spanned at all
+— they happen inside the MCP server, which returns the final outcome to a caller that never sees the
+intermediate attempts. Both are in the verification list below rather than dressed up as features.
+
+The format is mine — a small span model written to JSONL — because a local Langfuse or an OTEL
+collector would have been more moving parts than the assignment needed, and the trace had to work in
+a container with no extra service.
 
 AgentCore Observability is the replacement and the format is the *point*: it ingests
 OpenTelemetry, which is what my span model should have been emitting all along. The change is
@@ -180,7 +193,7 @@ CloudWatch, which is also the main thing to check (cost and retention, in the ch
 
 ### Evaluations — my eval suite, pointed at production traces
 
-`eval/` runs 19 cases against the real HTTP contract and exits non-zero if any fails; the cases
+`eval/` runs 22 cases against the real HTTP contract and exits non-zero if any fails; the cases
 cover which tool was chosen, that the approval step is respected, that an out-of-scope request is
 refused, and a run with failures switched on. That is a *behavioural* suite, and it is offline: it
 drives the service from outside. [`../eval/results/latest.md`](../eval/results/latest.md) is the
@@ -191,7 +204,7 @@ of real sessions and traces. Two caveats, both in the checklist: the documentati
 evaluates sessions and traces from **Strands Agents or LangGraph instrumented with OpenTelemetry or
 OpenInference**, and my agent is plain code with a custom span model, so using it means first
 emitting standard telemetry (which the Observability change does anyway). And an online evaluator
-scores what actually happened; the 19 committed cases assert what *should* happen, and I would keep
+scores what actually happened; the 22 committed cases assert what *should* happen, and I would keep
 them as the regression gate regardless of what the online service reports.
 
 ### Harness — considered, and not used
@@ -254,7 +267,7 @@ losing the ability to test them the way they are tested now.
 
 ### 4. The deterministic provider
 
-`AGENT_MODEL_PROVIDER=scripted` runs the whole system, including the 19 eval cases, with no API key
+`AGENT_MODEL_PROVIDER=scripted` runs the whole system, including the 22 eval cases, with no API key
 and no network. It is the reason the evals are a regression gate rather than a cost centre, and the
 reason every screenshot in `docs/media/` is reproducible. Nothing about AgentCore changes that, and
 I would keep a scripted provider in the deployed build for exactly this purpose.

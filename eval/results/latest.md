@@ -1,6 +1,6 @@
 # Eval results
 
-**All 19 case(s) passed** in 87.7s.
+**All 22 case(s) passed** in 46.8s.
 
 | Case | Family | Result | Checks |
 | --- | --- | --- | --- |
@@ -23,6 +23,9 @@
 | `approval_expiry` | approval step respected | **pass** | 5/5 |
 | `restart_between_propose_and_approve` | approval step respected | **pass** | 5/5 |
 | `timeout_gives_up` | a run that runs out of time | **pass** | 2/2 |
+| `approval_by_message` | approval step respected | **pass** | 6/6 |
+| `decline_by_message` | approval step respected | **pass** | 6/6 |
+| `unrelated_message_keeps_the_proposal` | approval step respected | **pass** | 6/6 |
 
 ## Failures
 
@@ -49,6 +52,9 @@ None.
 - `approval_expiry` — `stop_reason_is`, `approval_pending`, `tool_not_executed`, `decision_outcome_is`, `tickets_delta`
 - `restart_between_propose_and_approve` — `stop_reason_is`, `approval_pending`, `tickets_delta_before_decision`, `decision_outcome_is`, `tickets_delta`
 - `timeout_gives_up` — `stop_reason_is`, `tickets_delta`
+- `approval_by_message` — `stop_reason_is`, `approval_pending`, `tool_not_executed`, `stop_reason_is`, `tool_called`, `tickets_delta`
+- `decline_by_message` — `stop_reason_is`, `approval_pending`, `stop_reason_is`, `tool_called`, `tool_not_executed`, `tickets_delta`
+- `unrelated_message_keeps_the_proposal` — `stop_reason_is`, `stop_reason_is`, `tool_called`, `approval_pending`, `tool_not_executed`, `tickets_delta`
 
 ## Reproducing this run
 

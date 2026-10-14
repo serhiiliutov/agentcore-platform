@@ -31,7 +31,9 @@ model that keeps calling tools — cannot make a conversation unbounded.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -43,6 +45,7 @@ from agent_service.agent.budget import (
 )
 from agent_service.db.models.approval import Approval
 from agent_service.db.repositories.approvals import ApprovalRepository
+from agent_service.observability.spans import PROPOSAL, TOOL_CALL
 from agent_service.providers.base import (
     AssistantTurn,
     Message,
@@ -109,6 +112,28 @@ class ToolExecutor(Protocol):
         ...
 
 
+class SpanRecorder(Protocol):
+    """What the loop needs in order to record what it did.
+
+    A Protocol rather than the concrete `Tracer`, for the reason the other seams in this project
+    use one: a test drives the loop with a list-appending recorder and no trace directory, while
+    the real tracer is still checked against the same shape. The two methods below are the whole
+    vocabulary — a unit of work that takes time, and an event that does not.
+
+    Optional everywhere it is used. A loop with no recorder does exactly the same work and simply
+    leaves no span behind, which is what keeps observability from becoming a dependency of
+    correctness.
+    """
+
+    def span(self, kind: str, name: str, **attributes: Any) -> AbstractContextManager[Any]:
+        """Record a unit of work, closed when the block ends."""
+        ...
+
+    def add(self, kind: str, name: str, **attributes: Any) -> Any:
+        """Record an event that happened at an instant."""
+        ...
+
+
 @dataclass(frozen=True)
 class LoopLimits:
     """The ceilings on one turn."""
@@ -142,6 +167,10 @@ class ToolCallRecord:
     call: ToolCallRequest
     outcome: ToolOutcomeValue
     detail: str = ""
+    #: How long the call took, in milliseconds. Measured by the loop so the *response* carries it
+    #: as well as the trace: the contract's example response has a ``duration_ms`` per call, and a
+    #: caller reading only the response should not have to open a trace file to find the slow one.
+    duration_ms: int | None = None
 
 
 @dataclass(frozen=True)
@@ -187,6 +216,7 @@ class AgentLoop:
         system_prompt: str = "",
         deadline: Deadline | None = None,
         cancel: CancelToken | None = None,
+        spans: SpanRecorder | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -202,6 +232,9 @@ class AgentLoop:
         #: Someone else's flag. The loop reads it, never sets it — the reason a run was cancelled
         #: is not something the run gets to author.
         self._cancel = cancel
+        #: Where this turn's tool calls and proposals are recorded. Optional, so the loop's
+        #: behaviour never depends on observability being installed.
+        self._spans = spans
 
     async def run(self, prompt: str, *, history: Sequence[Message] = ()) -> TurnResult:
         """Run one turn to its end — an answer, a proposal, or the budget.
@@ -334,6 +367,16 @@ class AgentLoop:
                 # proposal time so a re-execution after approval is provably the same action.
                 client_request_id=_declared_key(call),
             )
+            if self._spans is not None:
+                # Recorded with the arguments, because the question a trace is opened to answer is
+                # "what exactly was proposed" — and the row is the only other place those live.
+                self._spans.add(
+                    PROPOSAL,
+                    approval.action,
+                    approval_id=approval.id,
+                    arguments=dict(approval.payload),
+                    state=approval.state,
+                )
             records.append(
                 ToolCallRecord(
                     call=call,
@@ -382,7 +425,7 @@ class AgentLoop:
                 )
                 continue
 
-            outcome = await self._call(call)
+            outcome, duration_ms = await self._call_timed(call)
             records.append(
                 ToolCallRecord(
                     call=call,
@@ -392,9 +435,32 @@ class AgentLoop:
                     # successful one in the response — the only trace of the failure was the
                     # text fed to the model.
                     detail=outcome.text,
+                    duration_ms=duration_ms,
                 )
             )
             messages.append(Message.tool_result(call, outcome.text))
+
+    async def _call_timed(self, call: ToolCallRequest) -> tuple[ToolOutcome, int]:
+        """Run one read and report how long it took.
+
+        The timing is unconditional and the span is not, and they are separate on purpose: the
+        response's ``duration_ms`` is part of what a caller sees, while a span is only recorded
+        when a recorder was supplied. Returning both from one place means a call site cannot
+        remember one and forget the other.
+
+        The span wraps the call, so the tracer's own clock measures it — the same clock that
+        timestamps every other span in the run. Measuring here with a second clock would make a
+        trace's durations fail to add up, which is the one property a trace is read for.
+        """
+        started = time.monotonic()
+        if self._spans is None:
+            outcome = await self._call(call)
+        else:
+            with self._spans.span(TOOL_CALL, call.name, arguments=dict(call.arguments)) as span:
+                outcome = await self._call(call)
+                span.attributes["outcome"] = "failed" if outcome.is_error else "executed"
+                span.attributes["is_error"] = outcome.is_error
+        return outcome, int((time.monotonic() - started) * 1000)
 
     def _checkpoint(self) -> None:
         """Stop between steps if the run was cancelled or the turn is out of time.

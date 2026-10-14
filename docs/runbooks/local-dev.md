@@ -37,7 +37,7 @@ docs are at <http://localhost:8000/docs>.
 uv sync --all-groups      # one environment for the whole workspace
 make help                 # every command, with an example
 make doctor               # what is installed, what is configured, what is actually answering
-make test-unit            # 376 tests; no stack, no key, no network
+make test-unit            # 446 tests; no stack, no key, no network
 make lint && make typecheck
 ```
 

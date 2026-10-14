@@ -7,10 +7,15 @@ explains the same shapes in words; this module is what makes them true.
 
 Three choices here are decisions rather than transcriptions.
 
-**``user_id`` is required.** Memory is user-scoped — Stage 2 made every read of user-owned
-data take a ``user_id`` — so an invocation without one could not safely read or write a
-single fact. Making it optional and defaulting to something would have quietly broken the
-isolation the schema enforces.
+**``user_id`` defaults to a real scope, not to nothing.** Memory is user-scoped — Stage 2 made
+every read of user-owned data take a ``user_id`` — so a request without one still has to resolve to
+*something* that a fact, a trace and an approval can be filed under. It resolves to
+`DEFAULT_USER_ID`: one shared bucket, which is the honest alternative to refusing the request. The
+request is answerable, the bucket is a scope like any other, and two callers who both omit the field
+are told the same thing about their memory as two callers who both send "alice" are. The reason it
+is a default rather than a requirement is concrete: `CONTRACT.md`'s own smoke test posts
+``{"prompt": "..."}`` and no user id, and a service whose documented smoke test answers 422 reads as
+broken before it reads as careful.
 
 **``session_id`` is optional and means "continue".** Omitting it starts a new conversation;
 supplying one resumes that conversation's history. The runtime's own session header maps
@@ -50,6 +55,12 @@ PROMPT_MIN = 1
 #: Bounded so a single invocation cannot be used to push megabytes through the model.
 PROMPT_MAX = 8000
 
+#: The scope an invocation without a ``user_id`` is filed under. A named constant rather than a
+#: literal in the field default, because it is part of the contract's behaviour: a client that
+#: omits the field and one that sends this value are indistinguishable to everything downstream,
+#: which is exactly the point and is documented in the README.
+DEFAULT_USER_ID = "anonymous"
+
 
 class InvocationRequest(BaseModel):
     """One turn of conversation, as the platform sends it."""
@@ -57,8 +68,10 @@ class InvocationRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     prompt: Annotated[str, StringConstraints(min_length=PROMPT_MIN, max_length=PROMPT_MAX)]
-    #: Required. See the module docstring: without it, nothing user-scoped may be read.
-    user_id: Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    #: Who this belongs to. Defaulted rather than required — see the module docstring. An empty
+    #: string is still refused by the constraint, because that is a client bug rather than an
+    #: omission, and a blank scope would merge every such caller into one bucket by accident.
+    user_id: Annotated[str, StringConstraints(min_length=1, max_length=200)] = DEFAULT_USER_ID
     #: Omit to start a new conversation; supply to continue an existing one.
     session_id: str | None = None
 
@@ -83,8 +96,26 @@ class ToolCallRecord(BaseModel):
 
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    #: The contract's own example name for ``arguments``, published with the same value.
+    #:
+    #: Both keys exist on purpose. `CONTRACT.md` shows ``input`` in the response it says it will
+    #: read, so a harness written against that example looks for this key — while every module in
+    #: this service, the web page and the eval scorer all speak ``arguments``, and renaming it
+    #: would be a cosmetic change with a real blast radius. The contract's "add fields as you need"
+    #: is the licence for carrying both, and the cost is a duplicated value in one JSON object.
+    input: dict[str, Any] = Field(default_factory=dict)
     #: What became of the call. See `ToolOutcome` — in particular, ``proposed`` is not a failure.
     outcome: ToolOutcome = "executed"
+    #: The contract's own example name for ``outcome``, carrying the same value.
+    #:
+    #: The contract fixes the *key* and deliberately leaves the vocabulary to us — "``ok``,
+    #: ``error``, ``retried`` or whatever you need" — so the four outcomes this service already
+    #: distinguishes are published here verbatim rather than flattened into "ok"/"error", which
+    #: would lose the distinction between "waiting for a human" and "already ran".
+    status: str = ""
+    #: How long the call took, in milliseconds. In the contract's example response; recorded by
+    #: the loop rather than derived here, so it is a measurement and not an estimate.
+    duration_ms: int | None = None
     #: Whether the call failed to produce an answer. Redundant with ``outcome`` by design: it is
     #: the question most callers actually have, and making them derive it is how they get it
     #: wrong. True for ``failed`` and ``refused``; false for ``executed`` and ``proposed``.
@@ -104,6 +135,11 @@ class PendingApproval(BaseModel):
     approval_id: str
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    #: The contract's own example names for ``tool_name`` and ``arguments``, carrying the same
+    #: values for the reason given on `ToolCallRecord.input`. A client built against the
+    #: contract's example reads ``action``; this service and its page read ``tool_name``.
+    action: str = ""
+    input: dict[str, Any] = Field(default_factory=dict)
     #: One sentence for the person deciding, written by the agent.
     summary: str = ""
     #: When this proposal stops being approvable. Past it, the decision is refused rather

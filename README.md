@@ -4,19 +4,25 @@ An agent that answers IT-helpdesk questions and, when a change is actually requi
 waits for a human to approve before anything is written. Built for the AgentCore Platform Engineer
 assignment (option 1).
 
-> **Status: complete and tagged `v1.0.0`.** All sixteen stages are implemented and verified, and the
-> whole thing was then re-verified from a **fresh clone** of the committed tree: 376 unit tests pass,
-> all 19 eval cases pass, one command brings three services to healthy, and the recorded run
-> regenerates — the commands and their output are in
-> [`docs/plan/stage-16.md`](docs/plan/stage-16.md). Every claim in this README is either a command
-> whose output is quoted verbatim or a pointer to the file that contains it; anything not verified
-> says so.
+> **Status: complete.** All sixteen stages are implemented and verified, and the whole thing was then
+> re-verified from a **fresh clone** of the committed tree: 446 unit tests pass, all 22 eval cases
+> pass, one command brings three services to healthy, and the recorded run regenerates — the commands
+> and their output are in [`docs/plan/stage-16.md`](docs/plan/stage-16.md). Stage 17 then closed the
+> four gaps that re-reading the assignment against the *running* system turned up — including the
+> contract's own smoke test, which now builds and runs — recorded in
+> [`docs/plan/stage-17.md`](docs/plan/stage-17.md).
+>
+> Two tags, deliberately rather than one moved: **`v1.0.0`** marks the tree stage 16 verified from a
+> fresh clone, and **`v1.0.1`** marks this one, which adds the contract-compliance fixes. Moving the
+> first would have been a rewrite of a tag that had already been pushed; a second tag says which tree
+> is which without pretending nothing changed. Every claim in this README is either a command whose
+> output is quoted verbatim or a pointer to the file that contains it; anything not verified says so.
 
 **The short version.** Three processes: a mock ticketing API that fails on demand, an MCP server that
 is the only component holding a ticketing credential, and an agent that runs a model loop against it.
 The agent proposes writes and stops; a person approves; the approval is a database row, so it survives
 a restart. Failures are described to the model in sentences it can act on. Every run leaves a trace
-that explains it. `make up && make eval` runs the whole thing — 19 cases, no API key, no network.
+that explains it. `make up && make eval` runs the whole thing — 22 cases, no API key, no network.
 
 ---
 
@@ -54,14 +60,36 @@ curl -s -X POST localhost:8080/invocations -H 'Content-Type: application/json' \
 # stop_reason: completed, tool_calls: [search_tickets -> executed]
 ```
 
+`user_id` is optional and defaults to one shared scope, `anonymous` — which is why the contract's own
+smoke-test body (`{"prompt": "..."}`, no user id at all) answers instead of failing validation, and
+why two callers who both omit it share one memory. Each tool call carries the contract's field names
+and this service's side by side — `arguments` with `input`, `outcome` with `status` — plus
+`duration_ms` and a one-sentence `summary`;
+[`api/models.py`](services/agent/src/agent_service/api/models.py) is where that pairing is decided
+and explained.
+
+**The contract's single-container smoke test also runs**, from this repository root:
+
+```bash
+docker build -t my-agent . && docker run -p 8080:8080 my-agent
+```
+
+One container holding the agent, the MCP server (over stdio) and the ticketing mock. Its
+[`standalone-entrypoint.sh`](standalone-entrypoint.sh) repairs — and logs — the three values in
+`.env.example` that only make sense under Compose: a service hostname in `TICKETING_BASE_URL`, the
+HTTP MCP transport, and a `TICKETING_API_KEY=${API_KEY}` that `docker run --env-file` passes through
+literally rather than interpolating. The three-service topology above is unchanged and is still what
+`docker compose up` gives you; this image exists because `CONTRACT.md` opens with exactly that
+command.
+
 For the development loop:
 
 ```bash
 uv sync --all-groups     # one environment for the whole workspace
 make help                # every command, with an example
 make doctor              # what is installed, what is configured, what is answering
-make test-unit           # 376 tests, no stack and no credentials needed
-make eval                # starts its own stack and runs the 19 cases (exit 1 on any failure)
+make test-unit           # 446 tests, no stack and no credentials needed
+make eval                # starts its own stack and runs the 22 cases (exit 1 on any failure)
 ```
 
 `make` is a thin wrapper: every target is one line delegating to `uv run python -m devtasks <command>`,
@@ -107,8 +135,11 @@ Three properties fall out of that shape, and they are the point of it:
 * **A failure is described, not swallowed.** Rate limits, 500s and lost responses are handled inside
   the MCP server and reported to the model as structured, actionable errors. →
   [`tool-catalog.md`](docs/architecture/tool-catalog.md), [`failure-handling.md`](docs/architecture/failure-handling.md)
-* **Any run can be explained afterwards.** Every turn, tool call, retry, approval and provider call
-  is a span in a trace you can read. → [`observability.md`](docs/architecture/observability.md)
+* **Any run can be explained afterwards.** Every turn, every tool call with its arguments and
+  outcome, every proposal and every approval decision is a span or an event in a trace you can read
+  — and the two things deliberately *not* traced (one span per invocation rather than per provider
+  round trip; retries, which happen inside the MCP server) are named in that document rather than
+  left to be discovered. → [`observability.md`](docs/architecture/observability.md)
 
 The full tour — the request path, the module map, where each concern lives — is
 [`docs/architecture/overview.md`](docs/architecture/overview.md). The five decisions that shaped it
@@ -184,6 +215,14 @@ model asks for create_ticket
         ├──decline─────────────────────────────────▶ [declined]
         └──deadline passes─────────────────────────▶ [expired]
 ```
+
+**Two ways in, one gate.** `CONTRACT.md` says the answer arrives as the next `/invocations` call
+(`{"prompt": "yes, go ahead"}`); the page needs a button that acts on a specific approval id. Both
+work: `agent/decisions.py` classifies a message, `POST /invocations/approvals/{id}/decide` takes the
+click, and both call the same `ApprovalGate.decide` — one implementation, one row, one write. A
+message the classifier is unsure about ("yes, but first find me the printer ticket") is *not*
+consent: the proposal stays pending and the turn is answered normally, which is what makes a
+digression safe rather than destructive.
 
 Four properties make it real rather than decorative:
 
@@ -293,18 +332,18 @@ or a response.
 
 ## e. Quality: the evals, the results, and what they miss
 
-One command, `make eval`, runs **19 cases against the real service over HTTP** and exits non-zero if
+One command, `make eval`, runs **22 cases against the real service over HTTP** and exits non-zero if
 any fails. No API key and no network: the suite drives the deterministic `scripted` provider, so the
 same commit produces the same table. The committed transcripts are
 [`eval/results/latest.md`](eval/results/latest.md) (the report) and
 [`docs/media/eval-run.txt`](docs/media/eval-run.txt) (the console run).
 
-### The latest result — 19 of 19 passed in 87.7s
+### The latest result — 22 of 22 passed in 46.8s
 
 | Family | Cases | What it proves |
 |---|---|---|
 | **Right tool chosen** | `right_tool_search`, `right_tool_read`, `noise_then_search`, `pagination_page_two` | the model picks the right tool for the request, including when noise precedes it, and reads page two when the first page is not enough |
-| **Approval step respected** | `approval_respected`, `approval_declined_writes_nothing`, `invalid_enum_handled`, `digression_then_resume`, `approval_expiry`, `restart_between_propose_and_approve` | a write is proposed and not executed; a declined or expired one reaches the mock **zero** times; a pending approval survives a restart; a digression mid-approval does not lose it |
+| **Approval step respected** | `approval_respected`, `approval_declined_writes_nothing`, `invalid_enum_handled`, `digression_then_resume`, `approval_expiry`, `restart_between_propose_and_approve`, `approval_by_message`, `decline_by_message`, `unrelated_message_keeps_the_proposal` | a write is proposed and not executed; a declined or expired one reaches the mock **zero** times; a pending approval survives a restart; a digression mid-approval does not lose it; and the contract's own flow — answering "yes, go ahead" in the next call — executes exactly one write, while "no thanks" writes nothing and an unrelated message leaves the proposal pending |
 | **Out-of-scope request refused** | `out_of_scope_refused`, `first_contact` | the agent declines work outside the helpdesk and says why |
 | **A run with failures switched on** | `failures_switch_on`, `not_found_clarification`, `failures_do_not_duplicate_a_write` | retries happen, give up is reported honestly, and a lost write is not repeated |
 | **A run that runs out of time** | `timeout_gives_up` | a slow backend produces a truthful timeout rather than a hang |
@@ -374,11 +413,17 @@ Five span kinds, a closed vocabulary:
 
 | Span | Recorded when |
 |---|---|
-| `model_turn` | each provider call — model, duration, tokens |
-| `tool_call` | each MCP call — tool, the rendered arguments, the result, duration |
-| `proposal` | a write was proposed instead of executed |
-| `execution` | an approval was carried out, and whether the backend accepted it |
-| `memory` | a fact was extracted or injected |
+| `model_turn` | once per invocation, around the whole loop — provider, `model_turns`, duration, and whatever tokens the provider reported |
+| `tool_call` | each executed read — the tool, its arguments, its outcome and its duration |
+| `proposal` | a write was proposed instead of executed — with the arguments that will run if it is approved |
+| `execution` | an approval was carried out, and whether the backend accepted it — **in the decision's own trace**, because the decision is a separate request |
+| `memory` | a fact was recalled or remembered — the keys, never the values |
+
+Two limits are stated rather than implied, because both are places a reader would otherwise assume
+more than the code does: there is **one span per invocation rather than one per provider round trip**
+(the `model_turns` count carries that number instead), and **retries are not spanned at all** — they
+happen inside the MCP server, which returns a single outcome, so one `tool_call` span's duration
+covers every attempt it made.
 
 Attributes are **flat scalars only**, so the file is readable with `jq`; a structure worth keeping gets
 its own span. Spans are written once at the end, atomically (`.partial` then `os.replace`), so a reader
@@ -398,13 +443,17 @@ The concrete walkthrough, because "I'd look at the trace" is easy to claim:
 2. **Read the spans in order.** A `proposal` span for `create_ticket` is there, and no `execution`
    span follows it. The agent did not claim a write; it proposed one and stopped, and nobody approved
    it. The report and the trace disagree about what was said, not about what happened.
-3. **If it had been approved,** there would be an `execution` span instead — and its absence or its
-   error kind is the next fork: a success detail means the write reached the backend (the missing
-   ticket is the mock's problem), while a taxonomy kind says whether retrying could ever have helped
-   (`Authentication` never can).
-4. **If the turn had given up,** the last `tool_call` span carries the attempt count and the error
-   kind, and the retries appear as separate calls with growing durations — which is how "why did that
-   take forty seconds and then fail?" is answered without guessing. That is the path in
+3. **If it had been approved and the ticket were still missing,** this trace is the wrong one — the
+   decision is a separate request with a trace of its own. Ask for the session's traces and take the
+   second row: it has `tool_calls = 1` and an `execution` span. Then the fork is one field: an
+   `execution` span with `outcome: executed` means the write reached the backend (the missing ticket
+   is the mock's problem), while `outcome: failed` carries the reason, and whether retrying could
+   ever have helped (`Authentication` never can).
+4. **If the turn had given up,** the `tool_call` span shows the call that was made, its arguments and
+   its `failed` outcome, and the tool's own sentence is where "attempted 4 times and has been given
+   up on" is written — the retries are inside the MCP server rather than separate spans, so the one
+   span's duration covers all of them. That is how "why did that take forty seconds and then fail?"
+   is answered without guessing, and it is the path in
    [`05-failure-handled.png`](docs/media/05-failure-handled.png).
 5. **For the case the design exists to survive** — a write whose response was lost — the `execution`
    span, the approval row's `executed_at` and the mock's own record are three independent sources,
@@ -455,11 +504,11 @@ Four further decisions that did not need an ADR but carry weight:
 
 **Followed, and enforced by a command:**
 
-- **mypy in strict mode** across the services, the tests and the dev tooling — 101 files, no `any` in
+- **mypy in strict mode** across the services, the tests and the dev tooling — 104 files, no `any` in
   signatures, and no `# type: ignore` that is not explained.
 - **ruff** for lint and formatting, with the ruleset pinned in `pyproject.toml`.
-- **376 unit tests** that need no stack, no key and no network, plus contract tests against the mock
-  and integration tests against the composed stack.
+- **446 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
+  own tests), and integration tests against the composed stack for the rest.
 - **Small modules with docstrings that explain *why*.** The docstrings are the design document at the
   code level: why spans are not rows, why a cancel does not interrupt a write, why an open span
   reports no duration rather than zero. Anything non-obvious in this repository can be read as
@@ -501,7 +550,7 @@ AI-assisted engineering are specific and predictable:
 
 | Failure mode | The control that catches it here |
 |---|---|
-| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 376 unit tests, and integration tests against the composed stack, all green before any commit |
+| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 446 tests, and integration tests against the composed stack, all green before any commit |
 | Confident documentation that describes what was intended rather than what exists | every number in the docs is copied from real output; docs are written *after* the thing and against the running system. This caught six architecture documents that were linked and never written |
 | A feature that works and is unreachable from the running system | each stage's definition of done is exercised through the real surface — over HTTP, in a container, with a browser. This caught the web page (stage 11) and the CI compose file (stage 14) both existing and being unreachable |
 | Scope drifting toward what is easy to generate | a plan of record written first (`plan/MASTER-PLAN.md`), one stage at a time, each with what it would produce and how it would be checked |
@@ -596,11 +645,13 @@ agentcore-platform/
 ├── CONTRACT.md                   the unmodified starter-kit contract for the agent endpoint
 ├── docker-compose.yml            one command to run everything
 ├── docker-compose.ci.yml         the CI override (deterministic settings, own compose project)
+├── Dockerfile                    the contract's single-container image (agent + MCP + mock)
+├── standalone-entrypoint.sh      what that image starts, and the values it repairs
 ├── Makefile                      thin wrapper over `python -m devtasks`
 ├── pyproject.toml                uv workspace root; ruff + mypy + pytest config
 ├── uv.lock                       the reproducibility guarantee
 ├── devtasks/                     cross-platform task runner, and the CDP screenshot driver
-├── eval/                         the 19 cases, the runner, and committed results
+├── eval/                         the 22 cases, the runner, and committed results
 ├── mock-ticketing/               UNMODIFIED starter-kit fixture
 ├── services/
 │   ├── agent/                    the AgentCore Runtime workload (port 8080)

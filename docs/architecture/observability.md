@@ -23,13 +23,27 @@ actually read when something has gone wrong.
 `observability/spans.py` defines a closed vocabulary, so a filter means something and a new kind is a
 deliberate change rather than a typo at a call site:
 
-| Kind | Recorded when | What it answers |
-|---|---|---|
-| `model_turn` | before and after each provider call | how many turns, which model, how long, how many tokens |
-| `tool_call` | around each MCP call | which tool, with which arguments, what came back, how long |
-| `proposal` | a write is proposed instead of executed | that the turn stopped for a human, and what it proposed |
-| `execution` | an approval is carried out | what ran, and whether the backend accepted it |
-| `memory` | a fact is extracted or injected | what the agent believed about the user, and where it came from |
+| Kind | Emitted by | Recorded when | What it answers |
+|---|---|---|---|
+| `model_turn` | `agent/handler.py` | once per invocation, around the whole loop | which provider ran, how many model turns it took, how long the turn was, how many tokens the provider reported |
+| `tool_call` | `agent/loop.py` | around each executed read | which tool, with which arguments, what came back, how long |
+| `proposal` | `agent/loop.py` | a write is proposed instead of executed | that the turn stopped for a human, what was proposed, and the arguments that will run if it is approved |
+| `execution` | `factory.py` | an approval is carried out — **in the decision's own trace** | what ran, and whether the backend accepted it |
+| `memory` | `agent/handler.py` | a fact is recalled or remembered | how many facts reached the prompt, and which keys were learned — never the values |
+
+Two details in that table are worth reading twice, because both were wrong in an earlier draft of
+this document and the code is what settled them.
+
+**There is one `model_turn` span per *invocation*, not one per provider round trip.** A turn that
+takes three model turns to answer produces one span and a `model_turns` count of 3. Splitting it
+per round trip would be more precise and is not built; the invocation-level span is what the
+`model_turns` counter and the summary row already carry.
+
+**An `execution` span does not appear in the turn's trace.** The decision arrives as a *separate
+request* — that is the whole shape of the approval protocol — so it writes its own trace, with its
+own row in `traces` and the same `session_id`. Explaining "I approved it and nothing happened"
+therefore means reading two traces, not one, and the second one is found by session id rather than
+by walking the first.
 
 Each span carries `kind`, `name`, `started_at`, `ended_at`, `duration_ms` and a flat `attributes`
 object. The attributes are **scalars only** — `_scalar()` coerces anything else to its `repr` — and
@@ -95,29 +109,47 @@ nothing. A run that created a ticket and then lost it would have `tool_calls = 1
 primary access pattern the format was built for:
 
 ```
-{"kind":"model_turn","name":"scripted","duration_ms":12,"attributes":{...}}
+{"kind":"model_turn","name":"invocation","duration_ms":412,"attributes":{"prompt_chars":61}}
 {"kind":"proposal","name":"create_ticket","duration_ms":0,
- "attributes":{"summary":"Create a high-priority ticket ..."}}
-{"kind":"memory","name":"remember","duration_ms":0,"attributes":{"keys":"team"}}
+ "attributes":{"approval_id":"2a4c89eb-...","arguments":"{'title': 'jammed printer', ...}",
+               "state":"pending"}}
+{"kind":"memory","name":"recall_facts","duration_ms":0,"attributes":{"facts":0}}
+{"kind":"memory","name":"remember_facts","duration_ms":0,"attributes":{"keys":"team"}}
 ```
+
+(The `memory` spans are here because the prompt named a team; the values themselves are deliberately
+not copied into the trace — the keys are. A trace is the last place a user's name should accumulate.)
 
 The `proposal` span is the answer. The agent did not claim a write had happened — it *proposed* one,
 the turn ended `awaiting_approval`, and the ticket was never created because nobody approved it. The
 report and the trace disagree about what was said, not about what occurred.
 
-**3. If the proposal had been approved, and the ticket still missing,** the trace would instead hold
-an `execution` span. Then the question is which of the two possible failures it was, and that is
-another thing the trace settles immediately:
+**3. If the proposal had been approved and the ticket was still missing,** this trace is not the one
+to read — the decision is a separate request with a trace of its own. Ask for the session's traces
+and take the second row:
 
-- an execution span with no `failed` attribute and a success detail → the write reached the backend,
-  and the missing ticket is the *mock's* problem, not the agent's;
-- an execution span carrying the error taxonomy's kind → the backend refused it, and the kind says
-  whether retrying could ever help (`Authentication` never can, `RateLimited` might have).
+```sql
+SELECT id, started_at, status, tool_calls, trace_path
+FROM traces WHERE session_id = ? ORDER BY started_at;
+```
 
-**4. If the turn had given up instead,** the last `tool_call` span carries the attempts and the
-error kind, and the span sequence shows the retries as separate calls with increasing durations. That
-is the `05-failure-handled.png` path, and it is where "why did this take forty seconds and then
-fail?" is answered without guessing.
+The last row has `tool_calls = 1` (the write ran) and its file holds the `execution` span. Then the
+question is which of the two possible failures it was, and the span settles it immediately:
+
+- an `execution` span whose `outcome` attribute is `executed` → the write reached the backend, and
+  the missing ticket is the *mock's* problem, not the agent's;
+- an `execution` span whose `outcome` is `failed`, with the error in the summary row → the backend
+  refused it, and the detail says whether retrying could ever help (`Authentication` never can,
+  `RateLimited` might have).
+
+**4. If the turn had given up instead,** the trace shows a `tool_call` span for the call that was
+made — its arguments, its `outcome`, its duration — and the run ends as a deadline rather than as an
+answer. One honest limit: the retries are *not* separate spans, because they happen inside the MCP
+server, which returns a single outcome to a caller that never sees the individual attempts. What the
+trace shows is therefore one call with a duration that includes every attempt, the `failed` outcome,
+and the tool's own sentence — which is where "attempted 4 times and has been given up on" is
+written. That is the `05-failure-handled.png` path, and it is where "why did this take forty seconds
+and then fail?" is answered without guessing.
 
 **5. And the case the design is actually built to survive:** the user says the ticket exists but the
 agent said it failed. The `execution` span, the `approvals` row's `executed_at`, and the mock's own
