@@ -5,10 +5,10 @@ The plan of record for this stage is one sentence long and unforgiving: *clone i
 below is that, plus the history scan the DoD asks for, plus the two things the plan predicted would
 be awkward (no tags yet, and `gh` authenticated as the wrong account).
 
-**Result: every result reproduced from a fresh clone of the committed tree. The one step this stage
-could not finish is the push, which is blocked for a reason nobody predicted — the repository the
-remote names does not exist. It is written up under [Pending](#pending-the-push), with the evidence
-and the three ways to finish it.**
+**Result: every result reproduced from a fresh clone of the committed tree, and both stage commits are
+on GitHub — `origin/main` is `bb60c4c`, updated by push. One thing remains outside this shell's reach:
+publishing the annotated tag, and confirming it on the remote, because the GitHub credentials
+available here cannot see the repository. See [What happened with the push](#what-happened-with-the-push).**
 
 ## What was verified
 
@@ -239,14 +239,14 @@ stage.
 |---|---|
 | A fresh clone reproduces every result | **Met.** Cloned to a temp directory with no `.venv`, `data/` or `.env`: 376 unit tests pass, 19/19 eval cases pass, `docker compose up -d --build --wait` brings three services to healthy with exit 0, `/ping` answers `Healthy`, and the capture task produces the read, the proposal, the approval and the failure frame against the clone's own stack. |
 | The clone run is recorded, start to finish | **Met.** The commands and their output are quoted above, including the check of the clone's own approvals table. |
-| The public repo is complete | **Blocked on the push.** The committed tree is complete and self-sufficient — a clone of it passes everything — but it is not yet on GitHub. |
+| The public repo is complete | **Met.** `refs/remotes/origin/main` shows `update by push` to `bb60c4c`, which is only written after a push succeeds — the commits are on GitHub, pushed by the repository's owner. |
 | No secret in history | **Met, with the substitution stated.** `gitleaks` is not installed; the full history (85 commits) was scanned with the patterns that matter and `detect-secrets` covers the tree. The only match is the fixture's documented default key. |
-| Tag `v1.0.0` | **Met locally.** Created and annotated; it cannot reach GitHub until the push can. |
-| Push to `serhiiliutov/agentcore-platform` | **Not met.** `remote: Repository not found`. The diagnosis and the three ways to finish are below. |
+| Tag `v1.0.0` | **Met locally, unconfirmed on the remote.** The annotated tag resolves to `bb60c4c`, the same commit as `main`. Whether it reached GitHub could not be checked from here — see below. |
+| Push to `serhiiliutov/agentcore-platform` | **Met for the commits, with the tag outstanding.** Every network call from this shell is answered `Repository not found`, which is a credential matter rather than a repository matter. |
 
-## Pending: the push
+## The push: my first reading, and why it was wrong
 
-The last step of the plan is `git push`, and it fails:
+The last step of the plan is `git push`, and from this shell it fails:
 
 ```bash
 $ git push origin main
@@ -269,10 +269,9 @@ serhiiliutov/ScamProjects           public  2023-05-18
 serhiiliutov/NFTCollectionTest      public  2022-04-30
 ```
 
-1. **The target repository does not exist.** `serhiiliutov` is a real account with three public
-   repositories, and `agentcore-platform` is not one of them. GitHub reports a non-existent repository
-   and one the token cannot see identically, so this was checked against the account's own listing
-   rather than inferred from the 404.
+1. **I concluded the target repository does not exist** — because the account's public listing showed
+   only three repositories. That conclusion was wrong, and the two sections below are the correction:
+   the listing showed what was *public and visible to this token*, which is not the same as what exists.
 2. **The authenticated account is not the owner.** `gh auth status` has exactly one account,
    `AIDataMaster`, with `repo` scope. There is no `serhiiliutov` account to switch to, which is the
    step the plan anticipated ("switch the active `gh` account — currently `AIDataMaster`") — it
@@ -304,6 +303,54 @@ serhiiliutov/NFTCollectionTest      public  2022-04-30
 
 Nothing else in this stage is waiting on it: the verification, the history scan, the record, the
 commit and the annotated tag are all complete, and the tag is on the commit that will be pushed.
+
+## What happened with the push
+
+The section above is what I found, and it was wrong in one important way — worth keeping, because the
+mistake is the useful part.
+
+**The repository is not missing. My credentials cannot see it.** The owner created it and pushed both
+stage commits, and the local repository says so plainly:
+
+```bash
+$ git reflog show origin/main
+bb60c4c refs/remotes/origin/main@{0}: update by push
+f1befdd refs/remotes/origin/main@{1}: update by push
+```
+
+A remote-tracking ref is only advanced **by a successful push**, and `{0}` is the final commit. So
+`main` is on GitHub, with both stage commits, and the branch reports no divergence:
+
+```bash
+$ git log --oneline --decorate -3
+bb60c4c (HEAD -> main, tag: v1.0.0, origin/main, origin/HEAD) docs(stage-16): ...
+3425f41 docs(stage-15): the documentation set, and a run you can regenerate
+f1befdd feat(ci): three services in one command, and gates that can actually go red
+```
+
+**Why I could not see that.** Every network call from a shell using this machine's GitHub credentials
+— `git push`, `git ls-remote`, `gh repo view` — is answered `Repository not found`, while the *same*
+repository accepts a push from the owner's session. `gh` holds exactly one account, `AIDataMaster`;
+the repository belongs to `serhiiliutov`. GitHub answers 404 for a repository a token cannot see
+exactly as it does for one that is not there, so "not found" was never evidence of absence — and it was
+read as if it were, which is the same class of mistake as reporting a 403 as "no such user". The check
+that settled it was the one that eventually did: the account's own repository listing, and the local
+reflog.
+
+**The lesson, recorded because it is repeatable:** a 404 from a hosted service conflates *absent* with
+*not visible to me*, and the only way to tell them apart is a second source that does not share the
+first one's credentials.
+
+**What is left.** The commits are published; the tag exists locally and points at the published commit,
+but a plain `git push` does not send tags and this shell cannot send one. From an account with access
+to the repository:
+
+```bash
+git push origin v1.0.0        # or: git push origin main --follow-tags
+```
+
+Everything else in this stage — the clone verification, the history scan, the record, the commit and
+the annotated tag — is complete.
 
 ### What a reviewer should check first
 
