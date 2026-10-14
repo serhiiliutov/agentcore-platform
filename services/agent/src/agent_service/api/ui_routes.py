@@ -71,7 +71,13 @@ class ServiceInfo(BaseModel):
     model_id: str | None = None
     #: True when the provider answers from rules in this repository rather than from a model.
     deterministic: bool
-    #: The providers that would work right now — credential-free ones, or ones whose key is set.
+    #: What `Settings.configured_providers()` says this process believes it can use: the
+    #: credential-free providers, plus any whose credential or endpoint it can see. A *blank* key
+    #: is absent rather than a credential — that distinction was a defect until it was fixed, and
+    #: it is why this list is worth showing at all. `bedrock` appears whenever a region is set,
+    #: because the AWS SDK may find credentials in a chain this process cannot inspect (a profile,
+    #: an instance role), so the list is a belief rather than a promise that a call will
+    #: authenticate.
     configured: list[str] = []
     detail: str
 

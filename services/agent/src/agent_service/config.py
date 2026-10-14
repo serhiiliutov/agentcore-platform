@@ -126,6 +126,41 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("anthropic_api_key", "openai_api_key", mode="before")
+    @classmethod
+    def _a_blank_credential_is_no_credential(cls, value: object) -> object:
+        """Treat an empty or whitespace-only key as absent rather than as a key.
+
+        Compose passes ``${ANTHROPIC_API_KEY:-}``, so a shell that has not exported the variable
+        delivers an empty *string* rather than nothing at all — and ``SecretStr("")`` is not
+        ``None``, which is what every ``is not None`` test in this file read it as.
+
+        The cost was real, and was found by comparing two things that disagreed: ``/api/info``
+        listed ``anthropic`` and ``openai`` as providers this process could use while the
+        container's own environment held neither key. What that meant underneath is worse than a
+        misleading listing — ``selected_provider_is_usable()`` returned True for a provider whose
+        key was blank, so a service started with ``AGENT_MODEL_PROVIDER=anthropic`` and an empty
+        key was *not* refused at startup the way README section c promises, and would instead
+        fail on the first model call. A blank key has to be blank for that check to mean anything.
+
+        ``mcp_token`` is deliberately not listed here: its one reader already tests truthiness
+        (``if not settings.mcp_token``), so a blank token is refused there with a message about
+        the transport — no change is needed for that, and adding one would hide the fact.
+
+        Both shapes of "blank" are handled, because this runs *before* the type is coerced and so
+        can be handed either one: the environment and compose supply a plain ``str``, while a
+        caller constructing ``Settings`` directly supplies a ``SecretStr``. Unwrapping the second is
+        not hypothetical tidiness — without it a blank ``SecretStr`` is not a blank ``str``, and the
+        value would be read as a configured key by the same ``is not None`` test this exists to
+        correct. It was found the direct way: the first version of this validator passed its own
+        tests and a typed caller still got the old behaviour.
+        """
+        if isinstance(value, SecretStr):
+            value = value.get_secret_value()
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     # --- Derived state -----------------------------------------------------
     @property
     def is_sqlite(self) -> bool:
