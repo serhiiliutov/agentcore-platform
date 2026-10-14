@@ -11,7 +11,7 @@ has the repository open in front of them.
 | [`starter-kit/`](starter-kit/) | The unedited starter-kit README and sample eval cases, kept for provenance. The kit's code now lives at the repository root: `mock-ticketing/`, `CONTRACT.md`, `docker-compose.yml`. |
 | [`plan/MASTER-PLAN.md`](plan/MASTER-PLAN.md) | **The plan.** Scope, locked decisions, 17 stages, per-stage estimates, risks, definition of done. |
 | [`plan/00-conventions.md`](plan/00-conventions.md) | Working agreements: what is committed and what is not, commit style, branch/review flow. |
-| `plan/stage-NN.md` | One file per stage: goal, files touched, definition of done, result. Written as each stage starts. |
+| `plan/stage-NN.md` | One file per stage: what was built, the decisions taken, the defects the stage found, the verification output, and the definition of done. |
 | `adr/` | Architecture decision records. Each records the choice, the reasoning, and what was rejected. |
 | `architecture/` | How the system works: overview and diagram, data model, tool catalogue, approval state machine, memory, observability, failure handling, and what the ticketing mock actually does. |
 | `runbooks/` | Operational how-to: local development, running the evals, configuring model providers, troubleshooting. |
@@ -28,6 +28,9 @@ has the repository open in front of them.
 5. [`architecture/tool-catalog.md`](architecture/tool-catalog.md) — the tools the model actually sees, with their schemas and error contracts.
 6. [`architecture/approval-state-machine.md`](architecture/approval-state-machine.md) — why a write cannot happen without a human saying yes, and why that survives a restart.
 7. [`../eval/results/latest.md`](../eval/results/latest.md) — the latest eval run, as raw output.
+8. [`architecture/observability.md`](architecture/observability.md) — what is traced, and a worked walkthrough of debugging a bad run.
+9. [`runbooks/`](runbooks/) — running it locally, the evals, model providers, and troubleshooting.
+10. [`media/README.md`](media/README.md) — the recorded run, frame by frame, and how to regenerate it.
 
 ## Conventions used in these documents
 

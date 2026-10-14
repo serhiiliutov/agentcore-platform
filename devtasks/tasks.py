@@ -12,7 +12,8 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
-from typing import TypedDict
+from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -28,11 +29,18 @@ from devtasks.runner import (
     run_tool,
 )
 
+if TYPE_CHECKING:
+    # Only for the annotation on the capture helpers. Importing the driver at module scope would
+    # make every devtask depend on a websocket client being importable, which is one command's
+    # business rather than the runner's.
+    from devtasks.chrome import Chrome
+
 AGENT_DIR = REPO_ROOT / "services" / "agent"
 MCP_DIR = REPO_ROOT / "services" / "mcp-ticketing"
 MOCK_DIR = REPO_ROOT / "mock-ticketing"
 EVAL_DIR = REPO_ROOT / "eval"
 DATA_DIR = REPO_ROOT / "data"
+MEDIA_DIR = REPO_ROOT / "docs" / "media"
 
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 COMPOSE_CI_FILE = REPO_ROOT / "docker-compose.ci.yml"
@@ -403,6 +411,179 @@ def serve(extra: Sequence[str] = ()) -> int:
     The local overrides are applied for the same class of reason — see ``LOCAL_SERVE_ENV``.
     """
     return run([sys.executable, "-m", "agent_service", *extra], cwd=AGENT_DIR, env=_local_env())
+
+
+#: The page under capture, and the two turns the assignment asks to see.
+PAGE_URL = "http://127.0.0.1:8080"
+READ_PROMPT = "find tickets about the printer"
+WRITE_PROMPT = "please raise a ticket: the printer on the third floor is jammed again"
+
+
+def screenshots(extra: Sequence[str] = ()) -> int:
+    """Capture one run, start to finish, as PNGs in `docs/media/`. Mutates the file tree.
+
+    The assignment asks for screenshots or a recording of a read, a proposed write, the approval
+    and a failure being handled. A screenshot nobody can reproduce is worth little, so this drives
+    a real browser over the Chrome DevTools Protocol against the running service and writes what
+    it sees — see `devtasks/chrome.py` for the driver and why it is not Playwright.
+
+    Two modes, because they need two different stacks:
+
+      * **default** — the read, the proposed write and the approval, against a healthy stack. Four
+        frames: `01-loaded`, `02-read`, `03-proposed-write`, `04-approved-write`.
+      * **`--failure`** — the backend failing and the agent saying so, against a stack whose mock
+        is *actually* failing:
+
+            devtasks down-ci
+            FLAKY=1 FLAKY_RATE=1.0 devtasks up      # PowerShell: $env:FLAKY='1'; $env:FLAKY_RATE='1.0'
+
+        One frame: `05-failure-handled`.
+
+    The failure mode is a separate run rather than an extra step in the first one, and that is not
+    a convenience. With `FLAKY_RATE=1.0` every backend call fails, so the write the third frame
+    proposes could never be executed — the approval in the fourth step would fail and the run
+    would stop halfway. Asserting an approval against a backend that cannot approve anything would
+    be a screenshot of the harness, not of the product.
+
+    The task does not restart the mock itself to create the failure: it refuses to draw a failure
+    the stack did not really produce.
+
+    The browser is imported here rather than at module scope so that `devtasks help`, or any other
+    task, does not depend on a websocket library being importable — the driver is one command's
+    business, not the runner's.
+    """
+    from devtasks import chrome as browser_driver
+
+    agent_up = _agent_is_answering()
+    if not agent_up:
+        raise TaskError(
+            f"nothing is answering at {PAGE_URL}/ping, so there is no run to capture. "
+            f"Start the stack first: `devtasks up-ci` (or `devtasks up`)."
+        )
+
+    with browser_driver.Chrome.launch() as page:
+        outputs = _capture_failure(page) if "--failure" in extra else _capture_happy_path(page)
+
+    for written in outputs:
+        print(f"wrote {written.relative_to(REPO_ROOT)}")
+    print(
+        f"\n{len(outputs)} screenshot(s) in docs/media/. These are captures of a real run; "
+        f"re-run this task after a UI change rather than editing them."
+    )
+    return 0
+
+
+def _capture_happy_path(page: Chrome) -> list[Path]:
+    """A read, a proposed write and the approval, ending in frames 01-04."""
+    outputs: list[Path] = []
+
+    page.goto(f"{PAGE_URL}/")
+    page.wait_for("document.querySelector('#ask') !== null", description="the page to render")
+    # A capture run must start from a known state: a proposal left over from somebody's earlier
+    # poking would appear in the first frame and make these screenshots describe another run.
+    page.wait_for(
+        "document.querySelectorAll('#pending .approval').length === 0",
+        timeout=10,
+        description="no proposal to be outstanding before the run starts",
+    )
+    outputs.append(page.screenshot(MEDIA_DIR / "01-loaded.png"))
+
+    calls_before = _count(page, "#transcript .call")
+    _submit(page, READ_PROMPT)
+    _await_more(page, "#transcript .call", calls_before, "the read to call a tool", timeout=60)
+    outputs.append(page.screenshot(MEDIA_DIR / "02-read.png"))
+
+    _submit(page, WRITE_PROMPT)
+    page.wait_for(
+        "document.querySelector('#pending .approval') !== null",
+        timeout=60,
+        description="the write to be proposed rather than run",
+    )
+    outputs.append(page.screenshot(MEDIA_DIR / "03-proposed-write.png"))
+
+    page.click("#pending .approval button.ok")
+    page.wait_for(
+        "document.querySelectorAll('#pending .approval').length === 0",
+        timeout=60,
+        description="the proposal to be decided",
+    )
+    page.wait_for(
+        "Array.from(document.querySelectorAll('#transcript .turn .role'))"
+        ".some(function (n) { return n.textContent.indexOf('write') === 0; })",
+        timeout=30,
+        description="the executed write to appear in the transcript",
+    )
+    outputs.append(page.screenshot(MEDIA_DIR / "04-approved-write.png"))
+    return outputs
+
+
+def _capture_failure(page: Chrome) -> list[Path]:
+    """One read against a failing backend, ending in frame 05.
+
+    The assertion is the error *on screen* — a red tool call in the transcript — rather than a
+    particular message, so the frame proves the path was taken without pinning the wording of an
+    error the MCP server is free to improve.
+    """
+    page.goto(f"{PAGE_URL}/")
+    page.wait_for("document.querySelector('#ask') !== null", description="the page to render")
+    _submit(page, READ_PROMPT)
+    page.wait_for(
+        "document.querySelector('#transcript .call.err') !== null",
+        timeout=180,
+        description="the backend failure to surface as an error tool call",
+    )
+    return [page.screenshot(MEDIA_DIR / "05-failure-handled.png")]
+
+
+def _count(page: Chrome, selector: str) -> int:
+    """How many elements match `selector` right now."""
+    return int(page.evaluate(f"document.querySelectorAll({json.dumps(selector)}).length"))
+
+
+def _await_more(
+    page: Chrome,
+    selector: str,
+    previous: int,
+    description: str,
+    *,
+    timeout: float,
+) -> None:
+    """Wait for a *new* match to appear, not merely for one to exist.
+
+    Counting rather than testing for presence, because the transcript accumulates: after the first
+    turn, "there is a tool call on screen" is already true, so a presence check would let the
+    second capture fire before the second turn had produced anything and every later screenshot
+    would show the previous turn's result.
+    """
+    page.wait_for(
+        f"document.querySelectorAll({json.dumps(selector)}).length > {previous}",
+        timeout=timeout,
+        description=description,
+    )
+
+
+def _submit(page: Chrome, text: str) -> None:
+    """Type a message, submit the form, and wait for it to appear in the transcript."""
+    page.set_value("#message", text)
+    page.click("#ask button[type=submit]")
+    page.wait_for(
+        "Array.from(document.querySelectorAll('#transcript .turn.user .said'))"
+        f".some(function (n) {{ return n.textContent === {json.dumps(text)}; }})",
+        timeout=15,
+        description="the submitted message to appear in the transcript",
+    )
+
+
+def _agent_is_answering() -> bool:
+    """Whether the agent's health endpoint answers. Never raises."""
+    try:
+        request = Request(f"{PAGE_URL}/ping")
+        with urlopen(request, timeout=2) as response:
+            # `int(...)` rather than `== 200` alone: urllib is untyped, so the comparison is
+            # `Any` and mypy would have the function return it as-is.
+            return int(response.status) == 200
+    except (URLError, OSError):
+        return False
 
 
 # ---------------------------------------------------------------------------

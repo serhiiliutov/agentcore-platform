@@ -26,7 +26,7 @@ RUN := $(UV) run python -m devtasks
         test test-unit test-integration \
         up down ps logs up-ci down-ci ps-ci reset mock mcp \
         migrate downgrade revision \
-        eval secrets env clean ci
+        eval secrets screenshots env clean ci
 
 # --- forward trailing arguments: `make test-unit ARGS="-k approval -x"` ------
 ARGS ?=
@@ -142,6 +142,11 @@ revision:
 ## eval: run the eval suite and print a pass/fail table
 eval:
 	@$(RUN) eval $(ARGS)
+
+## screenshots: capture one run into docs/media (needs the stack up)
+##              add ARGS=--failure once the mock is failing on purpose
+screenshots:
+	@$(RUN) screenshots $(ARGS)
 
 ## env: create .env from .env.example if it does not exist
 env:
