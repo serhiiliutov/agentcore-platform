@@ -228,9 +228,16 @@ database row, so it survives a restart. → `db/models/approval.py`, `agent/gate
   left to be discovered. → `observability/spans.py`, `observability/tracer.py`
 
 The full tour — the request path, the module map, where each concern lives — is
-`services/agent/src/agent_service/factory.py`. The five decisions that shaped it
-are recorded in the five decision records under [`docs/adr/`](docs/adr/); the planning notes and the
-architecture notes behind them are internal working material and are not part of this repository.
+`services/agent/src/agent_service/factory.py`. The five decisions that shaped it are recorded in the
+five decision records under [`docs/adr/`](docs/adr/).
+
+> **`docs/` is internal and is not published.** The only parts of it in this repository are the
+> decision records (`docs/adr/`), the screenshots and the eval console run (`docs/media/`), and the
+> starter kit's own documentation and checksum manifest (`docs/starter-kit/`, which a unit test reads
+> to prove the mock fixture has not been edited). Everything else that used to live under `docs/` —
+> the plan of record, the architecture notes, the runbooks and the assignment brief — is working
+> material, not a deliverable, and has been removed from the repository. It is kept locally; nothing
+> in this README, in `AGENTCORE.md`, or in the code depends on it.
 
 ---
 

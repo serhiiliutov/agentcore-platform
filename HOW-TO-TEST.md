@@ -115,6 +115,20 @@ sessions. Every row below was run to check it, with the default provider.
 | `open a ticket for the flickering monitor` | A tool row for **create_ticket** marked **proposed** — *nothing has been created yet* — and an **approval card** showing the exact arguments (`title`, `requester`, `priority`, `category`, `client_request_id`) and an expiry time. The reply says it needs your approval. |
 | then click **Approve** on the card | The card disappears, and a tool row appears with the same arguments marked **executed**, with the summary *"Created ticket TCK-1025."* (the id counts up from the seed's 24 tickets). **The ticket now exists** — you can see it at `http://localhost:8000/docs`, or by asking `What is the status of TCK-1025?` |
 
+> **Run this once per clean stack.** The deterministic provider always sends the same
+> `client_request_id`, so a *second, differently-worded* write on the same stack is refused — correctly,
+> by the MCP server's idempotency ledger, with *"This client_request_id was already used for a
+> different request."* That is the ledger doing its job, not a fault: it is what guarantees one write
+> per approval. To run the write examples again from scratch:
+>
+> ```powershell
+> docker compose down -v && docker compose up -d --wait
+> ```
+>
+> `down -v` clears the ledger and the seeded tickets together. (Reading, declining and the memory
+> examples can be repeated freely — only *writing* is one-shot per stack.) If you have already run
+> `make eval`, do this before §3.2: the suite creates tickets too.
+
 ### 3.3 A write you refuse, and one you answer with a message
 
 | Send | What you should see |
