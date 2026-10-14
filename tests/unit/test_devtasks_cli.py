@@ -71,12 +71,19 @@ def test_help_aliases_are_accepted() -> None:
 
 
 def test_json_report_emits_parseable_json(capsys: pytest.CaptureFixture[str]) -> None:
-    """The JSON report is machine-read; it must always parse."""
+    """The JSON report is machine-read; it must always parse.
+
+    The `docs` list is the *published* subset — the directories a reader of this repository
+    finds. Asserting the working tree instead is how this was found: the machine that wrote
+    the change also held the internal notes, untracked, so `"plan" in report["docs"]` passed
+    here and failed in a clone of the very same commit. A test that describes one machine's
+    disk rather than the repository is the defect, not the clone.
+    """
     assert main(["json"]) == 0
 
     report = json.loads(capsys.readouterr().out)
     assert set(report) == {"repo_root", "services", "docs", "env_file"}
     assert "agent" in report["services"]
     assert "mcp-ticketing" in report["services"]
-    assert "plan" in report["docs"]
-    assert "adr" in report["docs"]
+    assert {"adr", "media", "starter-kit"} <= set(report["docs"])
+    assert not {"plan", "architecture", "runbooks"} & set(report["docs"])

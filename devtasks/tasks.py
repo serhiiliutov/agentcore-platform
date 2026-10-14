@@ -742,16 +742,59 @@ def _print_mock_status() -> None:
 
 
 def json_report(extra: Sequence[str] = ()) -> int:
-    """Print a machine-readable summary of the repo layout. Read-only."""
+    """Print a machine-readable summary of the repo layout. Read-only.
+
+    The two directory lists describe what this *repository* contains, not what this machine
+    happens to hold. The distinction is not theoretical: the working tree that produced this
+    project also holds the internal planning notes, untracked, so a report built from the
+    directory listing named `docs/plan` — a directory no clone has. It read as a description
+    of the published repository and was in fact a description of one machine's disk.
+    """
     report = {
         "repo_root": str(REPO_ROOT),
-        "services": sorted(p.name for p in (REPO_ROOT / "services").iterdir() if p.is_dir())
-        if (REPO_ROOT / "services").exists()
-        else [],
-        "docs": sorted(p.name for p in (REPO_ROOT / "docs").iterdir() if p.is_dir())
-        if (REPO_ROOT / "docs").exists()
-        else [],
+        "services": _published_dirnames(REPO_ROOT / "services"),
+        "docs": _published_dirnames(REPO_ROOT / "docs"),
         "env_file": (REPO_ROOT / ".env").exists(),
     }
     print(json.dumps(report, indent=2))
     return 0
+
+
+def _published_dirnames(parent: Path) -> list[str]:
+    """The immediate subdirectories of `parent` that are tracked in this repository.
+
+    Tracked rather than merely present — see `json_report`. `git ls-files` lists every file
+    under the directory, and only the first path segment of each is kept, so a nested file such
+    as `docs/adr/0001-*.md` contributes `adr` once.
+
+    Falls back to the directory listing when git cannot answer — an exported tarball, a
+    checkout with no repository — so the command still describes something useful instead of
+    reporting an empty tree. The names are filtered by `is_dir()` either way, so a file at the
+    top of the directory (`docs/README.md`) is never reported as one of its subdirectories.
+    """
+    if not parent.exists():
+        return []
+
+    completed = subprocess.run(
+        ["git", "ls-files", "--", parent.relative_to(REPO_ROOT).as_posix()],
+        cwd=str(REPO_ROOT),
+        env=build_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return sorted(p.name for p in parent.iterdir() if p.is_dir())
+
+    # `git ls-files` reports paths relative to the *repository root*, not to the pathspec, so
+    # the segment after `parent`'s own depth is the one wanted: for `docs/adr/0001-*.md` with
+    # parent `docs`, that is `adr`. Taking the first segment instead produced `docs`, which is
+    # not a subdirectory of `docs` — the report came back empty, and the test that pins the
+    # published subset is what caught it.
+    depth = len(parent.relative_to(REPO_ROOT).parts)
+    names: set[str] = set()
+    for line in completed.stdout.splitlines():
+        parts = line.strip().split("/")
+        if len(parts) > depth:
+            names.add(parts[depth])
+    return sorted(name for name in names if (parent / name).is_dir())
