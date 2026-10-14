@@ -1,7 +1,7 @@
-"""The two routes the page needs that the contract does not already provide.
+"""The routes the page needs that the contract does not already provide.
 
 Sending a message and answering a proposal are both already in the Runtime contract, so the page
-calls them directly and this module has almost nothing to add. Only two things were missing, and
+calls them directly and this module has almost nothing to add. Only three things were missing, and
 each had a reason.
 
 **``GET /`` serves the page.** Inline rather than mounted from a directory: the HTML is a Python
@@ -20,6 +20,12 @@ defining a second shape for a proposal. Two shapes for one thing is how a field 
 of them and not the other, and the page would then render a proposal differently depending on
 which endpoint produced it.
 
+**``GET /api/info`` says which model is answering.** Also for a person rather than for a machine:
+the default provider is deterministic, so its replies are canned by design, and without this the
+page gives a reader no way to know that the wording is a rule rather than a model — or that a real
+model is one environment variable away. It reports the provider, the model if one is named, and
+whether a credential is present; it reports no credential itself.
+
 The handler is injected exactly as the invocation and decision handlers are, so this module can be
 tested without a database and the app still starts without one.
 """
@@ -28,7 +34,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -50,8 +56,46 @@ class ApprovalList(BaseModel):
     approvals: list[PendingApproval] = []
 
 
+class ServiceInfo(BaseModel):
+    """Which model is answering, for the page's own header.
+
+    Added because the default provider is deterministic. A reviewer who does not know that reads
+    canned sentences — "Done. I used 1 tool call(s) to answer." — and has no way to tell them from
+    a live model's, so the page says it outright, and says how to change it. That is the same
+    answer the README gives, shown where the question is actually asked.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    provider: str
+    model_id: str | None = None
+    #: True when the provider answers from rules in this repository rather than from a model.
+    deterministic: bool
+    #: The providers that would work right now — credential-free ones, or ones whose key is set.
+    configured: list[str] = []
+    detail: str
+
+
 #: Lists a user's outstanding proposals. Supplied by the wiring layer, like the other handlers.
 PendingApprovalListing = Callable[[str], Awaitable[Sequence[PendingApproval]]]
+
+#: Providers that answer from rules recorded in the repository. Not "not real" — they are what
+#: makes the evals reproducible and free — but they do not reason, and the page should not imply
+#: they do.
+DETERMINISTIC_PROVIDERS = frozenset({"scripted", "replay"})
+
+_DETERMINISTIC_NOTE = (
+    "No language model is connected. AGENT_MODEL_PROVIDER=scripted answers from fixed rules in "
+    "this repository, which is what makes the eval suite deterministic and free to run on every "
+    "commit. To have a model choose the tools and answer, set AGENT_MODEL_PROVIDER to anthropic, "
+    "openai, openai_compatible or bedrock with the matching credential set, then recreate the "
+    "agent container. See README section c and HOW-TO-TEST.md section 6."
+)
+
+_LIVE_NOTE = (
+    "A model chooses the tools. Which one is set by AGENT_MODEL_PROVIDER and AGENT_MODEL_ID, read "
+    "once when the process starts."
+)
 
 
 class ListingNotConfiguredError(RuntimeError):
@@ -100,5 +144,35 @@ def create_ui_router(listing: PendingApprovalListing | None = None) -> APIRouter
                 status_code=501,
                 content={"error": {"kind": "NotImplemented", "detail": str(exc)}},
             )
+
+    @router.get("/api/info", response_model=ServiceInfo)
+    async def info(request: Request) -> ServiceInfo:
+        """Report which provider is in force. Read-only, and it never fails.
+
+        Read from ``app.state.settings``, which `create_app` sets, so there is no extra wiring and
+        an app built without settings still answers rather than 500s — the page must render whether
+        or not this works, and the chip simply stays hidden if it does not.
+
+        Deliberately not part of the Runtime contract: it exists for a person looking at the page,
+        and it says nothing about the conversation, the user or any credential beyond *whether* one
+        is present for a provider that needs it.
+        """
+        settings: object = getattr(request.app.state, "settings", None)
+        provider = str(getattr(settings, "agent_model_provider", "") or "unknown")
+        model_id = str(getattr(settings, "agent_model_id", "") or "")
+        configured: list[str] = []
+        if settings is not None:
+            described = getattr(settings, "configured_providers", None)
+            if callable(described):
+                configured = [str(name) for name in described()]
+
+        deterministic = provider in DETERMINISTIC_PROVIDERS
+        return ServiceInfo(
+            provider=provider,
+            model_id=model_id or None,
+            deterministic=deterministic,
+            configured=configured,
+            detail=_DETERMINISTIC_NOTE if deterministic else _LIVE_NOTE,
+        )
 
     return router

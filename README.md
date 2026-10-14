@@ -44,6 +44,7 @@ passes. Then:
 | | |
 |---|---|
 | **The page** | http://localhost:8080/ — type a problem, watch the tool calls, approve or decline |
+| Which model answers | shown in the page header; `scripted` by default (deterministic rules, no key), one environment variable away from a live model — section c below |
 | Agent contract | `POST http://localhost:8080/invocations` |
 | Agent health | `GET http://localhost:8080/ping` |
 | Ticketing mock | http://localhost:8000/docs |

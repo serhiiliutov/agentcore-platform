@@ -97,17 +97,27 @@ INDEX_HEAD = """<!DOCTYPE html>
   .approval .row { display: flex; gap: 8px; margin-top: 10px; }
   .banner { border-radius: 8px; padding: 10px 12px; margin: 14px 0; border: 1px solid var(--bad); color: var(--bad); font-size: 14px; }
   .hint { color: var(--muted); font-size: 13px; }
+  .chip { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <header>
   <h1>AgentCore &middot; IT Helpdesk Agent</h1>
+  <!-- Which model is answering, filled from /api/info on load. Without it a reviewer reads the
+       deterministic provider's canned sentences and has no way to tell them from a real model's -
+       the wrong conclusion to leave someone with, since the provider is one environment variable
+       away from a live one (README section c). -->
+  <span id="model" class="chip" hidden>model: &hellip;</span>
   <div class="who">
     <label for="user">user</label>
     <input id="user" value="alice" size="10" autocomplete="off">
     <label for="session">session</label>
     <input id="session" value="" size="14" placeholder="new" autocomplete="off">
+    <!-- Starts a fresh conversation: clears the transcript on screen and mints a new session id.
+         It deletes nothing on the server, and it cannot delete a ticket, because the agent has no
+         tool that deletes one. -->
+    <button type="button" id="newsession">New session</button>
   </div>
 </header>
 
@@ -125,7 +135,10 @@ INDEX_HEAD = """<!DOCTYPE html>
          when there is nothing to stop, and the 404 that follows reads like a broken button. -->
     <button class="bad" type="button" id="cancel" hidden>Cancel</button>
   </form>
-  <p class="hint">Reads run immediately. A write is proposed and waits for your approval above.</p>
+  <p class="hint">Reads run immediately. A write is proposed and waits for your approval above.
+    <strong>New session</strong> empties this transcript and starts a fresh conversation; the
+    previous one is not deleted — it stays in the database under its own session id, and no ticket
+    is ever removed by this page.</p>
 </main>
 """
 #: The script, kept separate from the markup only so the two are readable in one file each.
@@ -147,6 +160,8 @@ INDEX_SCRIPT = r"""
   var sessionField = document.getElementById("session");
   var sendButton = form.querySelector("button[type=submit]");
   var cancelButton = document.getElementById("cancel");
+  var newSessionButton = document.getElementById("newsession");
+  var modelChip = document.getElementById("model");
 
   // A session id is minted here rather than left for the server to assign, because cancelling
   // needs to name the conversation *while* the turn is running — and until the response arrived
@@ -251,7 +266,19 @@ INDEX_SCRIPT = r"""
       if (bits.length) turn.appendChild(el("div", "meta", bits.join(" - ")));
     }
 
-    transcript.insertBefore(turn, transcript.firstChild);
+    appendTurn(turn);
+  }
+
+  // Appended, not prepended, so the transcript reads top to bottom the way a conversation does.
+  // This used to insert before the first child, which put every new turn at the *top*: the newest
+  // exchange appeared above the one before it, and - because a reply is rendered after the prompt
+  // it answers - each agent block sat above the message that caused it. The transcript read as
+  // though the agent had answered the *next* question, which is how it was reported: "why do we
+  // have history down-up?" A tool row under the wrong prompt is worse than no transcript at all,
+  // because it looks like the agent called the wrong tool.
+  function appendTurn(turn) {
+    transcript.appendChild(turn);
+    turn.scrollIntoView({ block: "end" });
   }
 
   function renderApproval(proposal) {
@@ -291,7 +318,7 @@ INDEX_SCRIPT = r"""
         if (result.replayed) {
           turn.appendChild(el("div", "meta", "The backend reported this was already done."));
         }
-        transcript.insertBefore(turn, transcript.firstChild);
+        appendTurn(turn);
       }).catch(function (error) {
         approve.disabled = false;
         decline.disabled = false;
@@ -374,8 +401,41 @@ INDEX_SCRIPT = r"""
     }
   });
 
+  // A fresh conversation: an empty transcript and a new session id. Nothing is deleted - the
+  // previous conversation keeps its id and is still readable by setting the session field back to
+  // it - and no ticket is touched, because removing a ticket is not something this agent can do.
+  newSessionButton.addEventListener("click", function () {
+    clearError();
+    transcript.textContent = "";
+    pending.textContent = "";
+    sessionField.value = mintSession();
+    loadPending();
+    message.focus();
+  });
+
+  // Which model is answering, so the deterministic provider's sentences are not mistaken for the
+  // product's best effort. Silent on failure and the chip stays hidden: the page has to work
+  // whether or not this endpoint exists.
+  async function loadInfo() {
+    try {
+      var info = await json("api/info");
+      var label = info.provider;
+      if (info.deterministic) {
+        label += " - deterministic, no key needed";
+      } else if (info.model_id) {
+        label += " - " + info.model_id;
+      }
+      modelChip.textContent = "model: " + label;
+      modelChip.title = info.detail || "";
+      modelChip.hidden = false;
+    } catch (error) {
+      modelChip.hidden = true;
+    }
+  }
+
   userField.addEventListener("change", loadPending);
   loadPending();
+  loadInfo();
   message.focus();
 })();
 </script>

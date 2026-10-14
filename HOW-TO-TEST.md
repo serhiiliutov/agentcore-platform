@@ -8,6 +8,24 @@ Nothing here needs an API key, a model account or a network connection. The defa
 is a deterministic one that runs locally (`scripted`), so the same message always produces the same
 behaviour.
 
+**Read this before judging the answers.** `scripted` is not a language model. It matches your
+prompt against a short, ordered list of rules
+(`services/agent/src/agent_service/providers/scripted.py`) and returns the tool call those rules
+name — that is what makes the 22 eval cases reproducible and free to run on every commit. So its
+prose is canned (*"Done. I used 1 tool call(s) to answer."*) and it will not reason about a question
+no rule covers. **That is the provider, not the architecture:** the agent is built against a
+provider interface with six implementations, and pointing it at a real model is one environment
+variable and a container recreate — `AGENT_MODEL_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` set,
+see §6 and README section c. The page's header says which provider is answering
+(`model: scripted - deterministic, no key needed`), so the two are never confused, and hovering it
+says how to switch.
+
+**What is genuinely rule-based and what is not.** The tool choice, the approval gate, the error
+handling, the retry policy, the idempotency ledger and the memory extraction are ordinary code, and
+they behave identically whichever provider is in force — that is the part this assignment is about,
+and it is tested directly. Only the choice of *which* tool a sentence calls and the wording of the
+reply come from the provider, and only there does a real model change the result.
+
 ---
 
 ## 0. What you need
@@ -85,9 +103,11 @@ What you are looking at:
 | Element | What it is |
 |---|---|
 | **Your name** (top left) | the `user_id` every request is scoped to. Memory is per user, so changing it starts a clean slate |
-| **Session** (top right) | the conversation id. The same value resumes the same conversation; `new session` starts another one |
+| **Model** (top left) | which provider is answering — `scripted` (deterministic rules, no key) or the model you configured. Hover it for how to change it |
+| **Session** (top right) | the conversation id. The same value resumes the same conversation; the box is editable, so you can type an old id to go back to it |
+| **New session** (top right) | empties the transcript and starts a fresh conversation. It deletes nothing: the previous conversation stays in the database under its own session id |
 | **Message box** | type here and press **Send** (or Enter) |
-| **Transcript** | the conversation, with every tool call the agent made shown as a row: tool name, arguments, outcome, how long it took |
+| **Transcript** | the conversation, oldest at the top, with every tool call the agent made shown as a row under the reply it belongs to: tool name, arguments, outcome, how long it took |
 | **Approval card** | appears when the agent wants to *write* something. It shows the exact tool and arguments, and has **Approve** / **Decline** |
 
 Nothing is written to the ticketing system until you press **Approve** on a card. That is the point

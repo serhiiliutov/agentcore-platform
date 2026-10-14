@@ -13,11 +13,17 @@ trust. The driver is [`devtasks/chrome.py`](../../devtasks/chrome.py); the seque
 
 | File | What it shows |
 |---|---|
-| [`01-loaded.png`](01-loaded.png) | The page at `localhost:8080/`, before anything is typed: user `alice`, a freshly minted session, and the note that reads run immediately while a write is proposed and waits. |
+| [`01-loaded.png`](01-loaded.png) | The page at `localhost:8080/`, before anything is typed: user `alice`, a freshly minted session, the **New session** control, the note that reads run immediately while a write is proposed and waits, and the header's model chip — `scripted - deterministic, no key needed`. The chip says outright that the wording comes from rules rather than a model, and hovering it says how to switch; without it these frames would look like a live model's output. |
 | [`02-read.png`](02-read.png) | **A read.** "find tickets about the printer" → `search_tickets {"q":"printer"}` → *1 of 1 matching ticket(s) on page 1*, in two steps. The call, its arguments and its result are all on screen. |
 | [`03-proposed-write.png`](03-proposed-write.png) | **A proposed write, waiting.** The agent has proposed `create_ticket` and stopped. The card shows the exact arguments that would be sent, an expiry, and the two buttons. Nothing has been written — the ticket does not exist until the next frame. |
 | [`04-approved-write.png`](04-approved-write.png) | **The approval, executed.** After clicking *Approve and run*: a `WRITE EXECUTED` turn reading *Created ticket TCK-1025.*, and the proposal card is gone. |
 | [`05-failure-handled.png`](05-failure-handled.png) | **A failure, handled.** With the mock failing every request, the read comes back as a red `search_tickets` with *the ticketing API is rate limiting this client. This was attempted 4 times and has been given up on rather than retried further.* — and the agent says so in words rather than pretending it worked. |
+
+In every frame the transcript reads **oldest at the top**, with each tool call as a row under the
+reply it belongs to. That ordering is worth stating because it was wrong until this page change: the
+transcript was built by prepending each turn, so the newest exchange appeared at the top and every
+tool row sat above the prompt that caused it — which read as the agent having answered the *next*
+question. Frames `01`–`05` were all regenerated after the fix, so they show one consistent UI.
 
 ## The eval output
 
