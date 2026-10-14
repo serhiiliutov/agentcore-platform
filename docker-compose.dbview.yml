@@ -1,0 +1,43 @@
+# ============================================================================
+# Optional override: put the agent's database on the host, so a SQLite GUI can
+# watch it while the stack runs.
+#
+#     docker compose -f docker-compose.yml -f docker-compose.dbview.yml up -d --build --wait
+#
+# By default the agent's /data is a named Docker volume (see docker-compose.yml),
+# which is not a file a Windows GUI can open. This override replaces that mount
+# with ./data/dbview, so the database, its -wal sibling and the JSONL traces
+# become ordinary files on disk:
+#
+#     data/dbview/agent.sqlite3
+#     data/dbview/agent.sqlite3-wal
+#     data/dbview/traces/<trace-id>.jsonl
+#
+# `!override` rather than a plain list, because Compose *appends* a service's
+# volumes across files: without the tag, both mounts would target /data and which
+# one won would be a Docker implementation detail rather than a decision made
+# here. The tag needs Compose 2.24+ (Docker Desktop 4.24+) — `docker compose
+# version` prints yours. If the tag is unsupported, use §5.2 option C in
+# HOW-TO-TEST.md, which reads the same database through the running container.
+#
+# The host directory sits under `data/`, which is already gitignored, so a
+# database that grows during a demo cannot reach a commit.
+#
+# Two consequences worth knowing before you use it:
+#
+#   * The bind mount starts empty, and Alembic runs at container start
+#     (services/agent/docker-entrypoint.sh), so the schema is created on the first
+#     boot. Anything the agent learned in the named volume is *not* here — this is
+#     a second, empty database, not a view of the default one.
+#   * Switching back is `docker compose up -d` with docker-compose.yml alone; the
+#     named volume is untouched and still holds the earlier conversations.
+#
+# The ticketing mock's own state is in memory and the MCP server's ledger is in
+# its own volume; neither is affected by this file, because neither is what a
+# reviewer wants to watch.
+# ============================================================================
+
+services:
+  agent:
+    volumes: !override
+      - ./data/dbview:/data

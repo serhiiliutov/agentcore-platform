@@ -24,7 +24,7 @@ AgentCore Runtime contract from the first commit because `CONTRACT.md` said so:
 | `POST /invocations`, JSON in and out | `services/agent/src/agent_service/api/app.py`, shapes in `api/models.py` |
 | `GET /ping` returning `{"status":"Healthy"}`, or `HealthyBusy` under load | `HealthResponse`, with `HealthyBusy` reported while a turn is in flight |
 | Session id in `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id` | Mapped onto `session_id` in `app.py`, so a header client and a body client behave identically |
-| An ARM64 image | Both images cross-build for `linux/arm64` — see [`plan/stage-14.md`](plan/stage-14.md); a *run* on ARM64 is not claimed |
+| An ARM64 image | Both images cross-build for `linux/arm64` — the cross-build targets are in the Makefile; a *run* on ARM64 is not claimed |
 
 So the first deployment step is genuinely "push the image", not "rework the service". That is rare
 enough to be worth stating plainly, and it means the interesting parts of this document are the
@@ -80,7 +80,7 @@ instances requires. And it **registers nothing durable in process memory**: the 
 in-memory state, the in-flight-run registry, is inherently process-local and is used only to cancel
 a turn that this process is running
 (`services/agent/src/agent_service/agent/inflight.py`; see
-[`architecture/approval-state-machine.md`](architecture/approval-state-machine.md) for how a cancel
+`db/repositories/approvals.py` for how a cancel
 interacts with a pending write). On Runtime that registry is still correct; it is just smaller,
 because a cancel only ever reaches the instance actually running the turn, which is what it is for.
 
@@ -124,8 +124,7 @@ My memory implementation is deliberately small and the code says so: `memory.ext
 regexes over the user's own words that pull out a team, a home airport or a lab, `remember` stores
 them under a `user_id`, and there is a test that one user's facts are invisible to another. It is
 about eighty lines and it is the weakest part of the build in absolute terms — it extracts what it
-was written to extract and nothing else. [`architecture/memory.md`](architecture/memory.md) is the
-local design.
+was written to extract and nothing else. `agent/memory.py` is the local design.
 
 AgentCore Memory is the clear replacement, and the reason is not that it is more capable in general
 but that it models the two lifetimes separately, which is exactly the distinction the assignment
@@ -171,9 +170,8 @@ invocation; **a span per tool call carrying its arguments, its outcome and its d
 when a write is proposed; events when a fact is recalled or remembered; and an `execution` span on
 the approval decision, which is a *separate request* and therefore a separate trace. Token counts are
 carried through from the provider whenever it reports them — the deterministic provider used by the
-evals and the screenshots reports none, so its rows read zero, which
-[`architecture/observability.md`](architecture/observability.md) states plainly rather than leaving a
-reader to wonder.
+evals and the screenshots reports none, so its rows read zero, which `observability/tracer.py`
+states plainly rather than leaving a reader to wonder.
 
 Two things are deliberately *not* recorded, and naming them is the point of this paragraph: there is
 one span per invocation rather than one per provider round trip, and retries are not spanned at all
@@ -196,8 +194,8 @@ CloudWatch, which is also the main thing to check (cost and retention, in the ch
 `eval/` runs 22 cases against the real HTTP contract and exits non-zero if any fails; the cases
 cover which tool was chosen, that the approval step is respected, that an out-of-scope request is
 refused, and a run with failures switched on. That is a *behavioural* suite, and it is offline: it
-drives the service from outside. [`../eval/results/latest.md`](../eval/results/latest.md) is the
-latest run.
+drives the service from outside. [`eval/results/latest.md`](eval/results/latest.md) is the latest
+run.
 
 AgentCore Evaluations is the natural home for it and adds the mode I do not have — online scoring
 of real sessions and traces. Two caveats, both in the checklist: the documentation says it
@@ -258,12 +256,12 @@ a later request, which is exactly how the platform's request/response model want
 Gateway could front the mock directly and the agent would never know. I would keep `mcp-ticketing`
 as the thing the agent talks to, for two reasons that are about ownership rather than topology. The
 error taxonomy is mine — six kinds of backend failure, each with a message written for a model to
-act on (`architecture/failure-handling.md`, and `services/mcp-ticketing/src/ticketing_mcp/errors.py`)
-— and that is the difference between a model that retries uselessly and one that tells the user the
-truth. And the idempotency ledger is mine: `create_ticket` is guarded by a key derived from the
-approval, recorded before the call and checked after (the "never make the same write twice"
-requirement). Both of those are behaviour, not plumbing, and moving them into a managed layer means
-losing the ability to test them the way they are tested now.
+act on (`services/mcp-ticketing/src/ticketing_mcp/errors.py`, and `agent/budget.py`) — and that is
+the difference between a model that retries uselessly and one that tells the user the truth. And the
+idempotency ledger is mine: `create_ticket` is guarded by a key derived from the approval, recorded
+before the call and checked after (the "never make the same write twice" requirement). Both of those
+are behaviour, not plumbing, and moving them into a managed layer means losing the ability to test
+them the way they are tested now.
 
 ### 4. The deterministic provider
 
@@ -291,7 +289,7 @@ If the answer is no, the page moves to S3 + CloudFront and becomes a client of t
 | `user_id` in the request body | The caller's identity from Identity | Provenance instead of a claim. This is the one change that makes an existing guarantee stronger rather than just tidier. |
 | Local memory regexes | AgentCore Memory | Long-term facts with a real extraction and a real lifetime, scoped per actor. |
 | `docker compose` three containers | Runtime + Gateway targets (+ the mock somewhere) | The composition becomes managed; see the Runtime section for what that costs. |
-| Both images built `amd64` locally | `linux/arm64` on Runtime | Already cross-built; see the stated limit in [`plan/stage-14.md`](plan/stage-14.md). |
+| Both images built `amd64` locally | `linux/arm64` on Runtime | Already cross-built; see the stated limit in section h of the README. |
 
 ## Where I expect it to get hard
 
@@ -374,4 +372,4 @@ The rest would be worked around.
   reads it. The reliable parts are the shape of the design and the questions in the table above.
 - **My own services are described from the code, not from memory.** Everything attributed to this
   repository can be checked: the file is named in almost every case, and the tests that pin a
-  behaviour are named in [`architecture/`](architecture/) and in the [plan](plan/MASTER-PLAN.md).
+  behaviour are named in the tests beside the code the claim comes from.

@@ -61,4 +61,6 @@ Makefile   text eol=lf
 # `uv.lock` is huge and machine-generated; collapse it in diffs and reviews.
 uv.lock    -diff linguist-generated=true
 *.lock     -diff linguist-generated=true
-docs/agent-platform-assignment/**   linguist-documentation=true
+# The published part of docs/ is documentation rather than code. GitHub uses this to
+# keep it out of the language bar; the planning tree is untracked and needs no entry.
+docs/**    linguist-documentation=true

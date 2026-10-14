@@ -7,10 +7,10 @@ assignment (option 1).
 > **Status: complete.** All sixteen stages are implemented and verified, and the whole thing was then
 > re-verified from a **fresh clone** of the committed tree: 446 unit tests pass, all 22 eval cases
 > pass, one command brings three services to healthy, and the recorded run regenerates — the commands
-> and their output are in [`docs/plan/stage-16.md`](docs/plan/stage-16.md). Stage 17 then closed the
+> and their output are in [`eval/results/latest.md`](eval/results/latest.md). Stage 17 then closed the
 > four gaps that re-reading the assignment against the *running* system turned up — including the
-> contract's own smoke test, which now builds and runs — recorded in
-> [`docs/plan/stage-17.md`](docs/plan/stage-17.md).
+> contract's own smoke test, which now builds and runs.
+> The reasoning for each fix is in the commit message that made it.
 >
 > Two tags, deliberately rather than one moved: **`v1.0.0`** marks the tree stage 16 verified from a
 > fresh clone, and **`v1.0.1`** marks this one, which adds the contract-compliance fixes. Moving the
@@ -169,7 +169,7 @@ docker compose up -d agent                 # recreate the agent with the new env
 There is no runtime switch and no provider picker: the choice is read once while the application is
 built, so changing it is an environment change and a restart, and a provider selected without what it
 needs is refused at startup with a message naming it. Full table, per-provider examples, and the
-local-model caveat: [`docs/runbooks/provider-setup.md`](docs/runbooks/provider-setup.md).
+local-model caveat: section c and `.env.example`.
 
 **Read it.** In this order. Each file is self-contained; the first two tell you where everything else
 lives.
@@ -185,7 +185,7 @@ lives.
 | 7 | `.../agent_service/tools/registry.py` | which tools are reads and which are writes — the rule the interception uses |
 | 8 | `.../agent_service/db/models/` | the schema, and the two things deliberately not in it |
 | 9 | `tests/unit/test_message_approval.py`, `eval/cases.json` | the behaviour, as executable assertions rather than prose |
-| 10 | `docs/architecture/overview.md`, `approval-state-machine.md` | the design, once you have seen the code. Then [`AGENTCORE.md`](AGENTCORE.md) for the move to AWS |
+| 10 | [`AGENTCORE.md`](AGENTCORE.md) | how this maps onto AWS Bedrock AgentCore, what I would keep and change, and what I would verify before relying on it |
 
 ## b. Architecture overview
 
@@ -216,19 +216,21 @@ Three properties fall out of that shape, and they are the point of it:
 
 * **A write cannot happen without a human.** Write tools are intercepted before execution and become
   a pending approval. Only an explicit approval executes the call, and the pending state is a
-  database row, so it survives a restart. → [`approval-state-machine.md`](docs/architecture/approval-state-machine.md)
+database row, so it survives a restart. → `db/models/approval.py`, `agent/gate.py`
 * **A failure is described, not swallowed.** Rate limits, 500s and lost responses are handled inside
   the MCP server and reported to the model as structured, actionable errors. →
-  [`tool-catalog.md`](docs/architecture/tool-catalog.md), [`failure-handling.md`](docs/architecture/failure-handling.md)
+  the taxonomy in `services/mcp-ticketing/src/ticketing_mcp/errors.py` and
+  `services/agent/src/agent_service/agent/budget.py`
 * **Any run can be explained afterwards.** Every turn, every tool call with its arguments and
   outcome, every proposal and every approval decision is a span or an event in a trace you can read
   — and the two things deliberately *not* traced (one span per invocation rather than per provider
   round trip; retries, which happen inside the MCP server) are named in that document rather than
-  left to be discovered. → [`observability.md`](docs/architecture/observability.md)
+  left to be discovered. → `observability/spans.py`, `observability/tracer.py`
 
 The full tour — the request path, the module map, where each concern lives — is
-[`docs/architecture/overview.md`](docs/architecture/overview.md). The five decisions that shaped it
-are the ADRs in [`docs/adr/`](docs/adr/).
+`services/agent/src/agent_service/factory.py`. The five decisions that shaped it
+are recorded in the five decision records under [`docs/adr/`](docs/adr/); the planning notes and the
+architecture notes behind them are internal working material and are not part of this repository.
 
 ---
 
@@ -292,7 +294,7 @@ A restart therefore loses nothing that matters — and there is an eval case tha
 between proposing a write and approving it.
 
 **The approval step is a state machine with a row behind it** (full detail in
-[`approval-state-machine.md`](docs/architecture/approval-state-machine.md)):
+`db/repositories/approvals.py`):
 
 ```
 model asks for create_ticket
@@ -361,12 +363,12 @@ me?" is answerable. The limitation I would want stated plainly: **isolation** is
 (one user's facts are invisible to another), but **provenance** is not — `user_id` arrives in the
 request body, so a client that lies about it sees someone else's memory. On AgentCore, Identity would
 make that an authentication property instead of a convention. That gap is in the verification table
-of [`AGENTCORE.md`](AGENTCORE.md). Design detail: [`memory.md`](docs/architecture/memory.md).
+of [`AGENTCORE.md`](AGENTCORE.md). Design detail: `agent/memory.py`.
 
 ## d. Tool design
 
 Four tools, two reads and two writes, exposed over MCP by `mcp-ticketing`. The full catalogue with
-schemas and error contracts is [`tool-catalog.md`](docs/architecture/tool-catalog.md).
+schemas and error contracts is `services/mcp-ticketing/src/ticketing_mcp/tools.py`.
 
 | Tool | Kind | Notes |
 |---|---|---|
@@ -451,7 +453,7 @@ Named rather than implied, because a suite's gaps matter more than its pass coun
 - **Live-model behaviour.** Every case runs on `scripted`. The live providers are covered by unit
   tests against recorded payloads, which verifies the message translation and tool-call parsing but
   nothing about judgement. A live run is a different exercise, and
-  [`plan/stage-13.md`](docs/plan/stage-13.md) discusses what it showed.
+  no live run is recorded here: the development host has no model credential.
 - **Latency and cost.** Nothing asserts a ceiling on either. The turn deadline is tested by
   exhausting it deliberately, not by measuring a real slow run end to end.
 - **Concurrency.** Two turns in one session at once, or two instances sharing the database, are
@@ -484,9 +486,9 @@ Beyond the features, the things that stop a class of mistake rather than fixing 
 | The per-stage plan and its definition of done | a claim in the docs that no command supports |
 
 That last row is the one I would keep above all the others, and it is not a code guardrail. Every
-stage in [`docs/plan/`](docs/plan/) lists what it would produce and how it would be checked; several
+piece of work started from a written definition of done, checked against the running system; several
 of those checks found that a feature existed and was unreachable from the running system — the web
-page in stage 11, the CI compose file in stage 14. Both were "working" and neither could be reached.
+page, and the CI compose file. Both were "working" and neither could be reached.
 
 ## f. Observability: what is traced, and how I'd debug a bad run
 
@@ -495,7 +497,7 @@ page in stage 11, the CI compose file in stage 14. Both were "working" and neith
 One invocation produces **one trace**, as two artefacts: a JSONL file of spans, and one indexed row in
 the `traces` table (session, user, duration, status, provider, model, counters, error, and the path to
 the file). The row answers *"find me the run"*; the file answers *"explain this run"*. Design and
-trade-offs: [`observability.md`](docs/architecture/observability.md).
+trade-offs: `observability/tracer.py`.
 
 Five span kinds, a closed vocabulary:
 
@@ -585,8 +587,8 @@ Four further decisions that did not need an ADR but carry weight:
   nothing between a reviewer and a working demo.
 - **CI's compose file is an override, not a second stack** — and it is reachable from a terminal
   (`make up-ci`), because a topology only CI can start is a topology nobody can debug. The reasoning,
-  including why Compose's `include:` was rejected, is in
-  [`plan/stage-14.md`](docs/plan/stage-14.md).
+  including why Compose's `include:` was rejected, is in the header comments of
+  `docker-compose.ci.yml` and `.github/workflows/ci.yml`.
 
 ## h. Engineering standards — followed, and skipped
 
@@ -604,9 +606,9 @@ Four further decisions that did not need an ADR but carry weight:
 - **A composition root** (`factory.py`) so nothing constructs its own database session or transport.
 - **Configuration from the environment only**, with credentials as `SecretStr`, and no
   configuration file to drift from the code.
-- **A per-stage plan with a definition of done** (`docs/plan/`), and a log per stage that records the
-  defects the stage found. Nine of those defects are in
-  [`plan/stage-14.md`](docs/plan/stage-14.md) alone.
+- **A written definition of done before each piece of work**, and a commit per piece that records what
+  it cost — including the defects it found. Nine of those defects came from one piece of work alone.
+  Those records are internal working material; what they produced is the code and the tests beside it.
 - **Nothing claimed that a command has not shown.** Where a number appears in this documentation it
   was copied from output, and where something is unverified it says so — ARM64 being the standing
   example: the images cross-build, the *run* is not claimed.
@@ -641,7 +643,7 @@ AI-assisted engineering are specific and predictable:
 | Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 446 tests, and integration tests against the composed stack, all green before any commit |
 | Confident documentation that describes what was intended rather than what exists | every number in the docs is copied from real output; docs are written *after* the thing and against the running system. This caught six architecture documents that were linked and never written |
 | A feature that works and is unreachable from the running system | each stage's definition of done is exercised through the real surface — over HTTP, in a container, with a browser. This caught the web page (stage 11) and the CI compose file (stage 14) both existing and being unreachable |
-| Scope drifting toward what is easy to generate | a plan of record written first (`plan/MASTER-PLAN.md`), one stage at a time, each with what it would produce and how it would be checked |
+| Scope drifting toward what is easy to generate | a plan of record written first, one piece of work at a time, each with what it would produce and how it would be checked |
 | Tests that pass because they assert nothing | a deliberately broken fixture is scored by a unit test, and the secret scan was made to fail on purpose before it was trusted. A check that cannot fail is worse than no check, because it gets cited as evidence |
 | Quietly editing the target to make the task easier | the mock is unmodified and checksum-verified in a test; the failure modes are the exercise |
 | Losing the reasoning behind a decision | ADRs, each recording the option chosen, the options rejected and why — written when the decision is made, not reconstructed later |
@@ -716,7 +718,7 @@ and disagree with. Nothing in them depends on being trusted.
 
 The judgement calls are the part to weigh, and they are all recorded as decisions with their
 alternatives rather than asserted as facts: the ADRs state what was rejected and why (LangGraph, a
-framework-owned loop, per-service locks); `plan/MASTER-PLAN.md` states what was taken out of scope and
+framework-owned loop, per-service locks); the commit history states what was taken out of scope and
 when; each stage file states what went wrong and what it cost. Where I have said something is
 unverified — an ARM64 run, the provenance of a `user_id`, a query against a live `arm64` host, a cost
 model — it is because the honest answer was more useful than a confident one, and the reasoning
@@ -796,18 +798,18 @@ Run `make help` for the full list with examples. The ones that matter:
 
 | The brief asks for | Where |
 |---|---|
-| the plan, and how it was executed | [`docs/plan/MASTER-PLAN.md`](docs/plan/MASTER-PLAN.md), plus a log per stage |
+| the plan, and how it was executed | the commit history — one commit per unit of work, each stating what changed and what it cost |
 | decisions and their alternatives | [`docs/adr/`](docs/adr/) |
-| how the pieces fit, and one request end to end | [`docs/architecture/overview.md`](docs/architecture/overview.md) |
-| the approval mechanism | [`docs/architecture/approval-state-machine.md`](docs/architecture/approval-state-machine.md) |
-| tools, their schemas, and the error contract | [`docs/architecture/tool-catalog.md`](docs/architecture/tool-catalog.md) |
-| what is stored and for whom | [`docs/architecture/data-model.md`](docs/architecture/data-model.md), [`memory.md`](docs/architecture/memory.md) |
-| retries, timeouts, giving up honestly | [`docs/architecture/failure-handling.md`](docs/architecture/failure-handling.md) |
-| tracing, and debugging a run from it | [`docs/architecture/observability.md`](docs/architecture/observability.md) |
-| the mock, and how to make it fail | [`docs/architecture/the-mock.md`](docs/architecture/the-mock.md) |
+| how the pieces fit, and one request end to end | the module map in `services/agent/src/agent_service/factory.py`, and `tests/contract/test_agent_contract.py` |
+| the approval mechanism | `agent/gate.py`, `agent/execution.py`, `db/repositories/approvals.py` |
+| tools, their schemas, and the error contract | `services/mcp-ticketing/src/ticketing_mcp/tools.py`, `errors.py` |
+| what is stored and for whom | `db/models/`, and the migrations in `services/agent/alembic/` |
+| retries, timeouts, giving up honestly | `services/mcp-ticketing/src/ticketing_mcp/errors.py`, `agent/budget.py` |
+| tracing, and debugging a run from it | §5 of [`HOW-TO-TEST.md`](HOW-TO-TEST.md), and `observability/tracer.py` |
+| the mock, and how to make it fail | [`docs/starter-kit/README.md`](docs/starter-kit/README.md), and the fault-injection flags in §a above |
 | the latest eval run, verbatim | [`eval/results/latest.md`](eval/results/latest.md), [`docs/media/eval-run.txt`](docs/media/eval-run.txt) |
 | the recorded run, and how to regenerate it | [`docs/media/README.md`](docs/media/README.md) |
-| running it locally, and when it breaks | [`docs/runbooks/`](docs/runbooks/) |
+| running it locally, and when it breaks | [`HOW-TO-TEST.md`](HOW-TO-TEST.md) |
 | the AWS design, and what I would check first | [`AGENTCORE.md`](AGENTCORE.md) |
 
 ## Notes for whoever runs this
@@ -815,11 +817,11 @@ Run `make help` for the full list with examples. The ones that matter:
 - **The default model provider needs no key and no network**, so the stack runs, the tests pass and
   the evals pass on a machine with neither. A real provider is selected by configuration — the list
   and the settings that select them are in
-  [`config.py`](services/agent/src/agent_service/config.py), and how to configure each is in
-  [`docs/runbooks/provider-setup.md`](docs/runbooks/provider-setup.md).
+  [`config.py`](services/agent/src/agent_service/config.py), and every setting with an example value
+  is in [`.env.example`](.env.example).
 - **Development happened on Windows and CI runs on Linux.** Everything is verified on both; a path
   that assumes one of them is a bug. That is not a preference — it is where two of the defects in
-  [`plan/stage-3.md`](docs/plan/stage-3.md) and [`stage-14.md`](docs/plan/stage-14.md) came from.
+  this project came from.
 - **Secrets never enter the repository or a log.** `.env` is gitignored, `detect-secrets` runs in the
   same form locally and in CI, and the scan has been made to fail on purpose before being trusted.
 - **The mock is not ours to fix.** If a test needs different mock behaviour, the test is wrong — or
@@ -829,6 +831,8 @@ Run `make help` for the full list with examples. The ones that matter:
 
 MIT — see [`LICENSE`](LICENSE).
 
-The files under `docs/agent-platform-assignment/` are the assignment brief as provided, included
-unmodified for context. `docs/starter-kit/` is the starter kit's own documentation, kept for
-provenance.
+`docs/starter-kit/` is the starter kit's own documentation and its checksum manifest, kept for
+provenance and verified by a test on every run. Two directories under `docs/` are published because
+they are evidence rather than planning: `docs/media/` (the screenshots and the eval console run) and
+`docs/adr/` (the five decision records this README cites). The assignment brief and the working notes
+behind this build are not published.

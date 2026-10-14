@@ -63,8 +63,8 @@ capture either, and would leave the most interesting frame present or absent at 
 
 - **Not a live model.** The committed run uses the deterministic `scripted` provider, so the tool
   choices and wording in these frames are reproducible: the same commit produces the same run.
-  A live-model run is a different exercise, and is discussed in
-  [`docs/plan/stage-13.md`](../plan/stage-13.md).
+  A live-model run is a different exercise, and no live run is recorded here: the development host
+  has no model credential.
 - **Not a recording.** Screenshots, as the assignment permits as an alternative. A recording would
   need a screen recorder on the capture host, which CI does not have; the trade is a set of frames
   that can be regenerated anywhere Chrome or Edge is installed, including on a headless runner.

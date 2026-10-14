@@ -12,7 +12,7 @@ Three things are checked here, in the order they could go wrong:
 2. **Scoring detects contradiction.** The `deliberately-broken.json` fixture is scored against an
    observation from a *successful* run, and the checks that should fail must fail. This is the
    unit-level half of the definition-of-done item that asks for a case proven able to fail a run;
-   the end-to-end half is the recorded run in `docs/plan/stage-13.md`.
+   the end-to-end half is the recorded run in `eval/results/latest.md`.
 3. **The report says what happened.** A failing case appears under Failures with its reason for
    existing; a passing run says "None."
 """

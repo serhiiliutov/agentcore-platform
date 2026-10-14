@@ -1,7 +1,7 @@
 # ============================================================================
 # AgentCore Platform — ignore rules
 #
-# Policy (see docs/plan/00-conventions.md):
+# Policy:
 #   * Secrets are NEVER committed. Only `.env.example` is tracked.
 #   * Runtime state (SQLite, JSONL traces) is NEVER committed.
 #   * Internal/private working notes are NEVER committed.
@@ -71,10 +71,31 @@ data/
 eval/.cache/
 eval/results/*.tmp
 
-# --- Internal / private working documents (project convention) --------------
+# --- Documentation: only what a reviewer needs is published -----------------
+# The planning record, the architecture notes, the runbooks and the brief itself are
+# internal working material and are deliberately NOT published: they are how the work
+# was done, not part of the deliverable. They stay on disk and stay readable locally.
+#
+# Three directories under docs/ ARE published, because each is evidence rather than
+# planning:
+#
+#   media/        the screenshots the assignment asks for, and the eval console run
+#   starter-kit/  the kit's own documentation and the checksum manifest that proves
+#                 the mock fixture has not been edited (a unit test reads it on every
+#                 run, so hiding it would break a fresh clone)
+#   adr/          the five decision records the README cites by name
+#
+# The negations keep working only because `docs/*` excludes the *children* of docs/
+# rather than docs/ itself — git cannot re-include a file whose parent directory has
+# been excluded outright.
+docs/*
+!docs/media/
+!docs/starter-kit/
+!docs/adr/
+
+notes/
 docs/internal/
 docs/scratch/
-notes/
 *.local.md
 *.local.json
 *.local.yaml

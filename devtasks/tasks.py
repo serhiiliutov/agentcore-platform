@@ -640,8 +640,7 @@ def ci(extra: Sequence[str] = ()) -> int:
     skipped a gate the pipeline enforces would let exactly the mistake it guards
     against reach the branch. Everything else the workflow does — building the
     images, starting the stack, the arm64 cross-build — needs Docker and is
-    reachable from `up`, `test-integration` and the buildx command in
-    docs/plan/stage-14.md.
+    reachable from `up`, `test-integration` and the buildx command.
     """
     lint()
     typecheck()

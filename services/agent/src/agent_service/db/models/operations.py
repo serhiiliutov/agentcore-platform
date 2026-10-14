@@ -19,9 +19,8 @@ row, and the provider in force is ``Settings.agent_model_provider``, read once a
 sound and half-built: a row instead of process state would make a provider change survive a
 restart and be visible to a reviewer, and ``scope`` would allow a per-session override without
 inventing a second mechanism. Whoever wires it should change the resolution point in
-`providers/base.py` and delete this paragraph. Until then the honest statement — the one
-`docs/runbooks/provider-setup.md` now makes — is that changing provider means changing the
-environment and restarting.
+`providers/base.py` and delete this paragraph. Until then the honest statement — the one the
+README now makes — is that changing provider means changing the environment and restarting.
 """
 
 from __future__ import annotations

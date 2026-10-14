@@ -243,6 +243,12 @@ async def test_a_rule_delay_is_honoured_and_absent_by_default() -> None:
     Measured rather than argued: a delayed rule must take its delay, and an ordinary one must not
     take anything — a provider that slept on every call would slow the whole suite until somebody
     deleted the timeout case, which is exactly how a coverage claim quietly becomes false.
+
+    The second assertion is *relative* on purpose. An absolute bound measures the machine: this
+    test was written as ``immediate < 0.2`` and failed on a loaded one — a container build in the
+    next terminal, a shared CI runner — because scheduling alone can exceed the bound while no
+    rule delayed anything. Comparing against the delayed call states the actual claim ("a rule
+    without a delay does not sleep") and stays true when the host is busy.
     """
     slow = ScriptedProvider(rules=(Rule("slow", _matches_always, _plain_turn, delay_s=0.2),))
     quick = ScriptedProvider(rules=(Rule("quick", _matches_always, _plain_turn),))
@@ -256,7 +262,7 @@ async def test_a_rule_delay_is_honoured_and_absent_by_default() -> None:
     immediate = time.monotonic() - started
 
     assert delayed >= 0.2, "a rule with a delay must take it"
-    assert immediate < 0.2, "a rule without one must not"
+    assert immediate < delayed / 4, "a rule without one must not wait"
 
 
 def _matches_always(_messages: Sequence[Message]) -> bool:

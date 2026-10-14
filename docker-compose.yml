@@ -12,8 +12,8 @@
 # :3000 proxying /api/* to the agent; that was not built, because the page turned out
 # to be an ordinary client of a contract that already exists, and a second container,
 # a port and a CORS policy would have bought nothing. The page is served by the agent
-# itself at `/`. Recorded in docs/plan/stage-11.md and again in stage-14.md, because
-# a reviewer counting services will look here first.
+# itself at `/`. A reviewer counting services will look here first, which is why this note
+# is here.
 #
 # The mock is the starter kit's fixture and is never edited — surviving its failures
 # is the exercise. It is the only service with no dependency on any other.
