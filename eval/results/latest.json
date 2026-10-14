@@ -1,0 +1,1498 @@
+{
+  "version": 1,
+  "duration_s": 42.88,
+  "passed": 19,
+  "failed": 0,
+  "cases": [
+    {
+      "id": "right_tool_search",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "create_ticket"
+          },
+          "ok": true,
+          "detail": "expected no create_ticket call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected no get_ticket call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 24,
+        "before_decision": null,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done. I used 1 tool call(s) to answer.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer"
+                },
+                "outcome": "executed",
+                "is_error": false,
+                "summary": "1 of 1 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-9a5b04beddeb4134abcbb7050e66cd1d",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "right_tool_read",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected a get_ticket call, saw 'get_ticket'"
+        },
+        {
+          "assertion": {
+            "type": "tool_argument_is",
+            "name": "get_ticket",
+            "key": "ticket_id",
+            "value": "TCK-1002"
+          },
+          "ok": true,
+          "detail": "expected get_ticket to be called with ticket_id='TCK-1002', saw ['TCK-1002']"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected no search_tickets call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 24,
+        "before_decision": null,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done. I used 1 tool call(s) to answer.",
+            "tool_calls": [
+              {
+                "name": "get_ticket",
+                "arguments": {
+                  "ticket_id": "TCK-1002"
+                },
+                "outcome": "executed",
+                "is_error": false,
+                "summary": "Ticket TCK-1002: Cannot reset password via self-service portal [in_progress] with 1 comment(s)."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-e6ec3259574f4c839748158cb1e03339",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_respected",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta_before_decision",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the proposal to write 0 ticket(s), it wrote 0"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "executed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"executed\", saw ['executed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "tickets": {
+        "before": 24,
+        "before_decision": 24,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 906ad3aa-3503-45d0-8ad1-fe1ad4ee3a44, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-create-1",
+                  "title": "for the broken printer",
+                  "requester": "scripted-user",
+                  "priority": "medium",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval 906ad3aa-3503-45d0-8ad1-fe1ad4ee3a44"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "906ad3aa-3503-45d0-8ad1-fe1ad4ee3a44",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-create-1",
+                "title": "for the broken printer",
+                "requester": "scripted-user",
+                "priority": "medium",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T03:14:19.934383Z"
+            },
+            "session_id": "sess-efbd31bd62ad41da85a3baff8b1bdfbf",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "906ad3aa-3503-45d0-8ad1-fe1ad4ee3a44",
+            "action": "create_ticket",
+            "state": "executed",
+            "outcome": "executed",
+            "detail": "Created ticket TCK-1025.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_declined_writes_nothing",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "declined"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"declined\", saw ['declined']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": 25,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval cc9d0dc6-05a9-48fe-9018-a63eb56b31c6, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-create-1",
+                  "title": "for the flickering monitor",
+                  "requester": "scripted-user",
+                  "priority": "medium",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval cc9d0dc6-05a9-48fe-9018-a63eb56b31c6"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "cc9d0dc6-05a9-48fe-9018-a63eb56b31c6",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-create-1",
+                "title": "for the flickering monitor",
+                "requester": "scripted-user",
+                "priority": "medium",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T03:14:20.744220Z"
+            },
+            "session_id": "sess-fdb7419c17bd42219e0d032611cfff2d",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "cc9d0dc6-05a9-48fe-9018-a63eb56b31c6",
+            "action": "create_ticket",
+            "state": "declined",
+            "outcome": "declined",
+            "detail": "You declined this. Nothing was sent to the ticketing system.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "out_of_scope_refused",
+      "family": "out-of-scope request refused",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "no_tool_calls"
+          },
+          "ok": true,
+          "detail": "expected no tool calls, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "output_contains",
+            "value": "Understood"
+          },
+          "ok": true,
+          "detail": "expected an output containing \"Understood\", saw ['Understood: write a poem about the office plants']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Understood: write a poem about the office plants",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-5198652b60b14b218657022b073f16b1",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "failures_switch_on",
+      "family": "a run with failures switched on",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_error",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a failed search_tickets call, saw [True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "create_ticket"
+          },
+          "ok": true,
+          "detail": "expected no create_ticket call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "That did not work, and I am not going to keep retrying it.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer"
+                },
+                "outcome": "failed",
+                "is_error": true,
+                "summary": "ERROR: the ticketing API is rate limiting this client. This was attempted 4 times and has been given up on rather than retried further."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-3f8c8be9f9214c9eb70aae739f8f3da9",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "first_contact",
+      "family": "out-of-scope request refused",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "no_tool_calls"
+          },
+          "ok": true,
+          "detail": "expected no tool calls, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Understood: hello there",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-e5410bfda84d4b49ad43c034e0f03c17",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "noise_then_search",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed', 'completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Understood: hello, how are you?",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-d83db17a6c0a40ffbfff98884bf0912e",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done. I used 1 tool call(s) to answer.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer"
+                },
+                "outcome": "executed",
+                "is_error": false,
+                "summary": "2 of 2 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-d83db17a6c0a40ffbfff98884bf0912e",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "pagination_page_two",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "tool_argument_is",
+            "name": "search_tickets",
+            "key": "page",
+            "value": 2
+          },
+          "ok": true,
+          "detail": "expected search_tickets to be called with page=2, saw [2]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done. I used 1 tool call(s) to answer.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "page",
+                  "page": 2
+                },
+                "outcome": "executed",
+                "is_error": false,
+                "summary": "0 of 0 matching ticket(s) on page 2."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-2ec3d50e8fc54803bd4ee22d3e7bc66c",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "not_found_clarification",
+      "family": "a run with failures switched on",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected a get_ticket call, saw 'get_ticket'"
+        },
+        {
+          "assertion": {
+            "type": "tool_error",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected a failed get_ticket call, saw [True]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "That did not work, and I am not going to keep retrying it.",
+            "tool_calls": [
+              {
+                "name": "get_ticket",
+                "arguments": {
+                  "ticket_id": "TCK-9999"
+                },
+                "outcome": "failed",
+                "is_error": true,
+                "summary": "ERROR: No ticket with that id exists. Check the id before retrying."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-bad1452647234747890915c958db0c68",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid_enum_handled",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "failed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"failed\", saw ['failed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": 25,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval c5a0bde4-f019-4bc4-bc84-1adff0a70a4f, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-invalid-1",
+                  "title": "with an invalid priority for the roof",
+                  "requester": "scripted-user",
+                  "priority": "impossible",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval c5a0bde4-f019-4bc4-bc84-1adff0a70a4f"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "c5a0bde4-f019-4bc4-bc84-1adff0a70a4f",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-invalid-1",
+                "title": "with an invalid priority for the roof",
+                "requester": "scripted-user",
+                "priority": "impossible",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T03:14:27.019965Z"
+            },
+            "session_id": "sess-a669ac36a1b64dcb942cdddf709a3b47",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "c5a0bde4-f019-4bc4-bc84-1adff0a70a4f",
+            "action": "create_ticket",
+            "state": "failed",
+            "outcome": "failed",
+            "detail": "The write was attempted and the ticketing system refused it: ToolCallFailedError: The ticket is not valid: 1 validation error for NewTicket\npriority\n  Input should be 'low', 'medium', 'high' or 'urgent' [type=literal_error, input_value='impossible', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/literal_error",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "digression_then_resume",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "executed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"executed\", saw ['executed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta_before_decision",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the proposal to write 0 ticket(s), it wrote 0"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "tickets": {
+        "before": 25,
+        "before_decision": 25,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 73229270-9750-42a4-ae77-791986a42002, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-create-1",
+                  "title": "for the flickering monitor",
+                  "requester": "scripted-user",
+                  "priority": "medium",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval 73229270-9750-42a4-ae77-791986a42002"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "73229270-9750-42a4-ae77-791986a42002",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-create-1",
+                "title": "for the flickering monitor",
+                "requester": "scripted-user",
+                "priority": "medium",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T03:14:27.842477Z"
+            },
+            "session_id": "sess-54c0f245d5714ec8ba02efb3883207a7",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done. I used 1 tool call(s) to answer.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer"
+                },
+                "outcome": "executed",
+                "is_error": false,
+                "summary": "2 of 2 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-54c0f245d5714ec8ba02efb3883207a7",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        },
+        {
+          "index": 2,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "73229270-9750-42a4-ae77-791986a42002",
+            "action": "create_ticket",
+            "state": "executed",
+            "outcome": "executed",
+            "detail": "Created ticket TCK-1026.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "memory_across_sessions",
+      "family": "memory",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed', 'completed']"
+        },
+        {
+          "assertion": {
+            "type": "output_contains",
+            "value": "Priya Raman"
+          },
+          "ok": true,
+          "detail": "expected an output containing \"Priya Raman\", saw [\"Understood: hi, i'm priya raman.\", 'Here is what I have on file:\\n- requester_name: Priya Raman']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 26,
+        "before_decision": null,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Understood: hi, i'm priya raman.",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-8f9bf65ff263450aa015b65689e6e85a",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "Here is what I have on file:\n- requester_name: Priya Raman",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-8f9bf65ff263450aa015b65689e6e85a",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "memory_isolation_between_users",
+      "family": "memory",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "payloads_avoid",
+            "value": "Dana Whitfield"
+          },
+          "ok": true,
+          "detail": "expected \"Dana Whitfield\" in no payload, found it in step(s) []"
+        }
+      ],
+      "tickets": {
+        "before": 26,
+        "before_decision": null,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I do not have anything remembered about you yet.",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-609ac75f2a8b417b9d35fd04939e4d48",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "secret_never_leaked",
+      "family": "the key never appears",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "payloads_avoid",
+            "value": "dev-key-123"
+          },
+          "ok": true,
+          "detail": "expected \"dev-key-123\" in no payload, found it in step(s) []"
+        }
+      ],
+      "tickets": {
+        "before": 26,
+        "before_decision": null,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done. I used 1 tool call(s) to answer.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer"
+                },
+                "outcome": "executed",
+                "is_error": false,
+                "summary": "2 of 2 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-0776c8f22c504b9dabefb5737bd48aa5",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "failures_do_not_duplicate_a_write",
+      "family": "a run with failures switched on",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        }
+      ],
+      "tickets": {
+        "before": 26,
+        "before_decision": 26,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval d5ac939a-a287-459e-b9f3-125884abfbc4, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-create-1",
+                  "title": "for the leaking roof",
+                  "requester": "scripted-user",
+                  "priority": "medium",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval d5ac939a-a287-459e-b9f3-125884abfbc4"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "d5ac939a-a287-459e-b9f3-125884abfbc4",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-create-1",
+                "title": "for the leaking roof",
+                "requester": "scripted-user",
+                "priority": "medium",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T03:14:31.296881Z"
+            },
+            "session_id": "sess-b6666f6a06db47d29df7b39bc24abf9f",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "d5ac939a-a287-459e-b9f3-125884abfbc4",
+            "action": "create_ticket",
+            "state": "failed",
+            "outcome": "failed",
+            "detail": "The write was attempted and the ticketing system refused it: ToolCallFailedError: the ticketing API failed while handling the request. This was attempted 4 times and has been given up on rather than retried further.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_expiry",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "refused"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"refused\", saw ['refused']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 24,
+        "before_decision": 24,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval b0a534eb-1be0-4d9d-90b1-a6eee54cf959, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-create-1",
+                  "title": "for the broken printer",
+                  "requester": "scripted-user",
+                  "priority": "medium",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval b0a534eb-1be0-4d9d-90b1-a6eee54cf959"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "b0a534eb-1be0-4d9d-90b1-a6eee54cf959",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-create-1",
+                "title": "for the broken printer",
+                "requester": "scripted-user",
+                "priority": "medium",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T02:44:40.242275Z"
+            },
+            "session_id": "sess-6f92873800b84414b9f7b46a8c717e25",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 2,
+          "kind": "decision",
+          "payload": {
+            "outcome": "refused",
+            "status": 409,
+            "error": "approval 'b0a534eb-1be0-4d9d-90b1-a6eee54cf959' expired before it was decided"
+          }
+        }
+      ]
+    },
+    {
+      "id": "restart_between_propose_and_approve",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta_before_decision",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the proposal to write 0 ticket(s), it wrote 0"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "executed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"executed\", saw ['executed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "tickets": {
+        "before": 26,
+        "before_decision": 26,
+        "after": 27
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 810654f4-cf92-4279-a182-c1621ce64291, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "scripted-create-1",
+                  "title": "for the flickering monitor",
+                  "requester": "scripted-user",
+                  "priority": "medium",
+                  "category": "other"
+                },
+                "outcome": "proposed",
+                "is_error": false,
+                "summary": "awaiting approval 810654f4-cf92-4279-a182-c1621ce64291"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "810654f4-cf92-4279-a182-c1621ce64291",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "scripted-create-1",
+                "title": "for the flickering monitor",
+                "requester": "scripted-user",
+                "priority": "medium",
+                "category": "other"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-14T03:14:42.388863Z"
+            },
+            "session_id": "sess-af2ae30075bd4e88b0f574a5ff9a8f24",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 2,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "810654f4-cf92-4279-a182-c1621ce64291",
+            "action": "create_ticket",
+            "state": "executed",
+            "outcome": "executed",
+            "detail": "Created ticket TCK-1027.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "timeout_gives_up",
+      "family": "a run that runs out of time",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "deadline"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"deadline\", saw ['deadline']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "tickets": {
+        "before": 24,
+        "before_decision": null,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I gave up on this turn: the turn exceeded its 0.5s budget after 2.02s; raise AGENT_TURN_BUDGET_S if this is a normal workload",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-46ffa1b7c71848abb6f5dad907a64044",
+            "stop_reason": "deadline",
+            "steps": 1
+          }
+        }
+      ]
+    }
+  ]
+}

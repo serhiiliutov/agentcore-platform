@@ -36,6 +36,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from agent_service.agent.loop import ToolOutcome
 from agent_service.db.models.approval import Approval, ApprovalState
 from agent_service.db.repositories.approvals import ApprovalRepository
 
@@ -54,24 +55,24 @@ class WriteToolExecutor(Protocol):
     """What the writer needs from a tool executor, which is narrower than the loop's.
 
     The loop wants a sentence it can show the model, failures included, so its ``ToolExecutor``
-    returns ``str``. The writer must not be able to mistake a failure for a success, and a ``str``
-    return makes that mistake possible — which is not hypothetical: this project had a
+    returns a value a model reads. The writer must not be able to mistake a failure for a success,
+    and a bare ``str`` makes that mistake possible — which is not hypothetical: this project had a
     ``McpToolExecutor.call`` that rendered a failure as the text ``ERROR: ...``, and a writer that
     recorded the resulting ticket as ``executed`` because it had nothing else to go on.
 
-    So the writer asks for a call that raises instead. The two readers of one result then cannot
-    disagree about whether it succeeded, because only one of them is given a value to compare.
+    So the writer asks for a call that raises on failure instead, and returns a `ToolOutcome`
+    rather than a string so the *other* fact it needs — whether the backend replayed rather than
+    created — arrives as data. Scanning the text for that fact is what this used to do, and it
+    silently read false on the one sentence where it mattered most.
     """
 
-    async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:
-        """Call a tool and return its text, raising `ToolCallFailedError` if it failed."""
+    async def call_checked(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
+        """Call a tool, raising `ToolCallFailedError` if the backend refused it.
+
+        Returns the outcome rather than its text: the writer needs both halves, and a signature
+        that hands over only the sentence is what forced it to guess at the other.
+        """
         ...
-
-
-#: Substrings by which Stage 5's MCP server signals that a write was not performed afresh.
-#: Read from its own text rather than re-derived, because the server knows first-hand whether
-#: it created anything and this code does not.
-REPLAY_MARKERS = ("replayed", "recovered")
 
 
 @dataclass(frozen=True)
@@ -116,11 +117,11 @@ class WriteExecutor:
         # covers BOTH an exception and a reported failure, because ``call_checked`` raises the
         # latter — which is what stopped a refused write from being recorded as executed.
         try:
-            text = await self._executor.call_checked(approval.action, self._arguments(approval))
+            outcome = await self._executor.call_checked(approval.action, self._arguments(approval))
         except Exception as exc:
             return self._fail(approval, f"{type(exc).__name__}: {exc}")
 
-        return self._finish(approval, text)
+        return self._finish(approval, outcome)
 
     def _arguments(self, approval: Approval) -> dict[str, Any]:
         """The arguments to send: the stored payload, with the stored key.
@@ -134,9 +135,19 @@ class WriteExecutor:
         arguments["client_request_id"] = approval.client_request_id
         return arguments
 
-    def _finish(self, approval: Approval, text: str) -> ExecutionResult:
-        """Record success, and report whether the backend replayed instead of creating."""
-        replayed = any(marker in text.lower() for marker in REPLAY_MARKERS)
+    def _finish(self, approval: Approval, outcome: ToolOutcome) -> ExecutionResult:
+        """Record success, and report whether the backend replayed instead of creating.
+
+        ``replayed`` is taken from the outcome rather than searched for in ``outcome.text``, and
+        that is a fix rather than a tidy-up. It used to scan the sentence for the words "replayed"
+        and "recovered" — and the ticketing server's sentence for exactly this case is "Ticket
+        TCK-1025 already existed for this request; nothing was created", which contains neither.
+        The flag read false, so the decision told the caller a fresh ticket had been created while
+        the detail beside it said nothing had been. The MCP layer already reports the fact as
+        data; reading the prose for it was a second, worse source of truth.
+        """
+        text = outcome.text
+        replayed = outcome.replayed
         result: dict[str, Any] = {"text": text, "replayed": replayed}
 
         self._approvals.mark_executed(approval.id, result=result)

@@ -23,7 +23,7 @@ import pytest
 
 from agent_service.agent.budget import CancelToken, Deadline
 from agent_service.agent.handler import STOP_REASON_MAP, to_invocation_response
-from agent_service.agent.loop import AgentLoop, LoopLimits, TurnResult
+from agent_service.agent.loop import AgentLoop, LoopLimits, ToolOutcome, TurnResult
 from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.providers.base import (
     AssistantTurn,
@@ -94,15 +94,22 @@ class FakeExecutor:
         #: Run *inside* the call, so a test can burn the budget while a step is in flight -
         #: which is the only way to model the situation the loop must not interrupt.
         self.on_call: Any = None
+        #: Tools this fake reports as failed, so a test can drive the branch where the loop must
+        #: record a call that ran but produced no answer.
+        self.failing: set[str] = set()
 
     async def call(
         self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
-    ) -> str:
+    ) -> ToolOutcome:
         if self.on_call is not None:
             self.on_call()
         self.calls.append(name)
         self.slices.append(timeout_s)
-        return f"{name} ran"
+        failed = name in self.failing
+        return ToolOutcome(
+            text=f"ERROR: {name} failed" if failed else f"{name} ran",
+            is_error=failed,
+        )
 
 
 class UnusedApprovals:

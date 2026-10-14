@@ -1,0 +1,465 @@
+"""Run every case against a live stack and write what happened.
+
+Invoked by ``make eval`` (via ``python -m eval``). The contract it honours is the one an eval is
+useless without: **it exits non-zero when a case fails**, so it can gate a change rather than only
+describe one, and it writes both a machine-readable and a human-readable result so the two
+audiences do not have to compromise.
+
+The cases are performed in order against one running stack, which is deliberate. A fresh stack per
+case would be simpler and would hide exactly the class of defect this suite exists for — state that
+leaks between turns. The approval cases write real tickets and the memory cases accumulate real
+facts, so a case that only passed because it started from nothing would look correct here and fail
+in a conversation.
+
+The one exception is a case that declares `stack` overrides. A turn budget and an approval TTL are
+read when the application is built, so a case that needs a different one cannot be served by a
+running process at all; it gets a stack of its own, started and stopped around it. That is a
+narrower thing than "a clean stack for every case": it is a clean stack only for the cases whose
+claim is about process configuration rather than about accumulated state.
+
+Two things are recorded for every case that no assertion consumes, and they are worth keeping:
+how long it took, and the raw payloads. The first is what tells a reviewer that a case is slow
+enough to be worth watching; the second is what makes a failure diagnosable without re-running it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import time
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from eval.report import render_markdown, summarise
+from eval.scoring import (
+    DECISION,
+    INVOCATION,
+    CaseResult,
+    Observation,
+    Step,
+    UnknownAssertionError,
+    evaluate,
+)
+from eval.stack import CASE_OVERRIDABLE_ENV, Stack, StackError, start_stack
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CASES = Path(__file__).resolve().parent / "cases.json"
+#: Inside the package, not at the repository root, because that is where the plan records the
+#: deliverable (section 1.1 names `eval/results/latest.md`) and because the run output belongs
+#: beside the cases that produced it. The README quotes this file, so a path that moved would
+#: make a documented artefact unfindable.
+DEFAULT_RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+#: The kinds of step a case may contain. Declared here and checked against, so a case file that
+#: invents a step fails before two services are started rather than being skipped silently
+#: half-way through a run. Same reasoning as the scorer's unknown-assertion error: a suite that
+#: quietly measures less than it says is the one failure mode an eval must not have.
+INVOKE_STEP = "invoke"
+DECIDE_STEP = "decide"
+#: Tear the agent down and build it again, against the same database. One step, no payload.
+RESTART_STEP = "restart"
+#: Wait, so a case can make time pass between two steps. Seconds, as a number.
+SLEEP_STEP = "sleep_s"
+
+STEP_KINDS: tuple[str, ...] = (INVOKE_STEP, DECIDE_STEP, RESTART_STEP, SLEEP_STEP)
+
+#: The status a decision arrives as when the gate refuses it. 409 is "the request was fine, the
+#: state prevents it" — which for this suite means the proposal expired before anyone answered.
+REFUSED_STATUSES: tuple[int, ...] = (409,)
+
+#: How a refused decision is named in a recorded step. The same word the loop uses for a call it
+#: declines to make, and for the same reason: the important thing about it is that a write did not
+#: happen and nothing broke, which neither "declined" nor "failed" says.
+REFUSED = "refused"
+
+
+def load_cases(path: Path) -> list[dict[str, Any]]:
+    """Read and shape-check the case file.
+
+    Validated here rather than discovered one case at a time during a run, because a malformed
+    case file should fail before the stack is started: spending a minute bringing up two services
+    to then report a missing key is a poor trade.
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cases = raw.get("cases") if isinstance(raw, dict) else None
+    if not isinstance(cases, list) or not cases:
+        raise ValueError(f"{path} has no non-empty 'cases' list")
+
+    seen: set[str] = set()
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            raise TypeError(f"case {index} is not an object")
+        case_id = case.get("id")
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(f"case {index} has no 'id'")
+        if case_id in seen:
+            raise ValueError(f"duplicate case id {case_id!r}; ids are how results are compared")
+        seen.add(case_id)
+
+        steps = case.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise ValueError(f"case {case_id!r} has no steps")
+        for step in steps:
+            _check_step(case_id, step)
+        if not isinstance(case.get("user_id"), str):
+            raise TypeError(f"case {case_id!r} has no user_id; memory is scoped by one")
+
+        _check_overrides(case_id, case.get("stack"))
+
+        # The optional two-user setup, checked here for the same reason as everything else: a
+        # malformed case should fail before two services are started, not half-way through a run.
+        for key in ("second_user_id", "second_user_prompt"):
+            if key in case and not isinstance(case[key], str):
+                raise TypeError(f"case {case_id!r} has a non-string {key}")
+        if ("second_user_id" in case) != ("second_user_prompt" in case):
+            raise ValueError(
+                f"case {case_id!r} sets one of second_user_id/second_user_prompt; both or neither"
+            )
+
+    return cases
+
+
+def _check_step(case_id: str, step: Any) -> None:
+    """Reject a step the runner would not know what to do with.
+
+    Exactly one key per step, and it has to be one the runner performs. A step carrying two keys
+    — an `invoke` that also said `restart` — would otherwise be ambiguous, and the runner would do
+    whichever it happened to check first: a case measuring something other than what it says.
+    """
+    if not isinstance(step, dict):
+        raise TypeError(f"case {case_id!r} has a step that is not an object")
+
+    keys = set(step)
+    if len(keys) != 1 or not keys <= set(STEP_KINDS):
+        raise ValueError(
+            f"case {case_id!r} has a step that is not exactly one of {STEP_KINDS}: {step!r}"
+        )
+
+    if RESTART_STEP in step and step[RESTART_STEP] is not True:
+        raise TypeError(
+            f"case {case_id!r} restarts with {step[RESTART_STEP]!r}; a restart is `true`"
+        )
+
+    if SLEEP_STEP in step:
+        seconds = step[SLEEP_STEP]
+        # `isinstance(True, int)` is true, so a bool has to be excluded explicitly: `true` as a
+        # duration would sleep for a second and look like it worked.
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds < 0:
+            raise TypeError(
+                f"case {case_id!r} sleeps for {seconds!r}, which is not a duration in seconds"
+            )
+
+
+def _check_overrides(case_id: str, overrides: Any) -> None:
+    """Reject a `stack` block that asks for something the eval cannot vary.
+
+    The keys are environment variable names, used verbatim rather than translated through a
+    friendlier alias. A mapping layer would be one more place for the case file and the settings to
+    disagree about which knob is which — and the whole point of an override is that it reaches the
+    setting the case names.
+    """
+    if overrides is None:
+        return
+    if not isinstance(overrides, dict):
+        raise TypeError(f"case {case_id!r} has a 'stack' that is not an object")
+
+    unknown = sorted(set(overrides) - CASE_OVERRIDABLE_ENV)
+    if unknown:
+        raise ValueError(
+            f"case {case_id!r} overrides {unknown}, which the eval does not vary. "
+            f"Varyable: {sorted(CASE_OVERRIDABLE_ENV)}"
+        )
+
+    for key, value in overrides.items():
+        if not isinstance(value, str):
+            raise TypeError(f"case {case_id!r} sets {key} to {value!r}, which is not a string")
+
+
+def _require_previous_approval(index: int, decide: Any, pending_approval_id: str | None) -> str:
+    """The approval id a decision must be applied to, or a failure explaining the case.
+
+    A helper rather than an inline `raise` so the check does not sit inside the case's `try`
+    block, where a defect in the *case file* would be caught by the handler that reports a
+    failure of the *agent* and be described as one. The two are different, and the message here
+    is what keeps them apart.
+    """
+    if not isinstance(decide, dict):
+        raise TypeError(f"step {index} has a 'decide' that is not an object")
+    if str(decide.get("approval")) != "previous" or not pending_approval_id:
+        raise StackError(
+            f"step {index} decides on a previous approval, but step {index - 1} proposed "
+            "none — the case describes a sequence the agent did not produce"
+        )
+    return pending_approval_id
+
+
+async def run_case(stack: Stack, case: dict[str, Any]) -> CaseResult:
+    """Perform one case and score it.
+
+    The ticket counts bracket the case and, when there is a decision, the moment before it. That
+    third reading is what lets a case state the approval requirement exactly — the proposing turn
+    wrote nothing, and the approving decision wrote one — instead of asserting only on the total.
+    """
+    result = CaseResult(
+        case_id=str(case["id"]),
+        family=str(case.get("family", "")),
+        why=str(case.get("why", "")),
+    )
+    steps: list[Step] = []
+    session_id: str | None = None
+    pending_approval_id: str | None = None
+    tickets_before_decision: int | None = None
+    tickets_before = stack.mock.ticket_count
+
+    if case.get("chaos"):
+        stack.mock.set_chaos(enabled=True, rate=1.0)
+
+    try:
+        # Setup for a two-user case: the *other* person states their facts, in their own session.
+        #
+        # Deliberately not recorded as a step. `payloads_avoid` scans every recorded payload, and
+        # the whole point of the isolation case is that one user's words appear in no response —
+        # so recording the turn that legitimately contains them would make the case fail on its
+        # own setup rather than on the answer it is testing.
+        await _seed_other_user(stack, case)
+
+        for index, step in enumerate(case["steps"]):
+            if "invoke" in step:
+                payload = await stack.invoke(
+                    prompt=str(step["invoke"]), user_id=str(case["user_id"]), session_id=session_id
+                )
+                # Carried to the next step so a decision lands on the same conversation, and so a
+                # multi-turn case is a conversation rather than several unrelated ones.
+                session_id = str(payload.get("session_id") or session_id or "")
+                approval = payload.get("pending_approval")
+                if isinstance(approval, dict):
+                    pending_approval_id = str(approval.get("approval_id") or "")
+                steps.append(Step(index=index, kind=INVOCATION, payload=payload))
+                continue
+
+            if RESTART_STEP in step:
+                # Not recorded as a step. It produces no response to assert on, and recording it
+                # would shift every `turn` index in the case — so a case that restarts between a
+                # proposal and a decision would have to count the restart when naming the turn it
+                # means, which is a trap for whoever writes the next one.
+                stack.restart_agent()
+                continue
+
+            if SLEEP_STEP in step:
+                # Not recorded either, and for the same reason: the wait is setup, and the thing
+                # asserted is what the *next* step finds rather than that time passed.
+                await asyncio.sleep(float(step[SLEEP_STEP]))
+                continue
+
+            decide = step["decide"]
+            target = _require_previous_approval(index, decide, pending_approval_id)
+            expect = str(decide.get("expect", "")).strip()
+            if tickets_before_decision is None:
+                tickets_before_decision = stack.mock.ticket_count
+            payload = await stack.decide(
+                approval_id=target,
+                user_id=str(case["user_id"]),
+                approved=bool(decide.get("approved")),
+                # Only a decision that declares it expects a refusal is allowed to receive one.
+                # Declared in the case rather than inferred from the status, so a 409 arriving in
+                # a case that expected a decision is still a failure — and any other status is a
+                # failure whether or not a refusal was expected.
+                tolerate=REFUSED_STATUSES if expect == REFUSED else (),
+            )
+            if expect == REFUSED:
+                # Named in the same vocabulary as the loop's outcomes, so `decision_outcome_is`
+                # reads it without a second assertion type. The status is carried beside it as the
+                # evidence for the word.
+                payload = {"outcome": REFUSED, **payload}
+            # A decision resolves the proposal it names; a second one would be refused, so the id
+            # is cleared rather than left to be decided twice by a mistaken case.
+            pending_approval_id = None
+            steps.append(Step(index=index, kind=DECISION, payload=payload))
+
+        observation = Observation(
+            steps=tuple(steps),
+            tickets_before=tickets_before,
+            tickets_after=stack.mock.ticket_count,
+            tickets_before_decision=tickets_before_decision,
+        )
+        # Kept on the result so the committed JSON explains a failure on its own. Assigned before
+        # scoring so a case that cannot be scored still records what it produced.
+        result.steps = tuple(steps)
+        result.tickets = {
+            "before": tickets_before,
+            "before_decision": tickets_before_decision,
+            "after": observation.tickets_after,
+        }
+        try:
+            result.checks = evaluate(case, observation)
+        except (UnknownAssertionError, IndexError) as exc:
+            # A case the scorer cannot interpret is a broken case, not a failing agent, and the
+            # distinction has to survive into the result file.
+            result.error = f"the case could not be scored: {exc}"
+    except (StackError, httpx.HTTPError) as exc:
+        # One catch rather than two: to a reader of the result file, "the agent answered 500" and
+        # "the agent never answered" are both "this case did not complete", and the sentence in
+        # `error` says which.
+        result.error = str(exc)
+    finally:
+        # Switched off here and not only before the next case, so a failure half-way through the
+        # failure case cannot leave the mock broken for everything after it.
+        if case.get("chaos"):
+            stack.mock.set_chaos(enabled=False)
+
+    return result
+
+
+async def _seed_other_user(stack: Stack, case: dict[str, Any]) -> None:
+    """Have a second user state a fact, so a case can prove it does not leak.
+
+    A no-op for a case that does not declare one.
+    """
+    other_user = case.get("second_user_id")
+    prompt = case.get("second_user_prompt")
+    if not isinstance(other_user, str) or not isinstance(prompt, str):
+        return
+    await stack.invoke(prompt=prompt, user_id=other_user)
+
+
+def _result_payload(results: list[CaseResult], *, duration_s: float) -> dict[str, Any]:
+    """The JSON form, shaped so a diff between two runs is readable."""
+    return {
+        "version": 1,
+        "duration_s": round(duration_s, 2),
+        "passed": sum(1 for result in results if result.passed),
+        "failed": sum(1 for result in results if not result.passed),
+        "cases": [
+            {
+                "id": result.case_id,
+                "family": result.family,
+                "passed": result.passed,
+                "error": result.error,
+                "checks": [
+                    {
+                        "assertion": check.assertion,
+                        "ok": check.ok,
+                        "detail": check.detail,
+                    }
+                    for check in result.checks
+                ],
+                # The responses themselves. Recorded because a failure that can only be
+                # understood by re-running the suite is one nobody investigates, and because
+                # the whole point of the suite is that what the service said is evidence.
+                "tickets": result.tickets,
+                "steps": [
+                    {"index": step.index, "kind": step.kind, "payload": step.payload}
+                    for step in result.steps
+                ],
+            }
+            for result in results
+        ],
+    }
+
+
+async def _run_on_own_stack(case: dict[str, Any], overrides: Mapping[str, str]) -> CaseResult:
+    """Run one case against a stack built for it, and take that stack down afterwards.
+
+    The teardown is in a `finally` so a case that raises still gives its ports and its MCP
+    subprocess back. A leak here would not be noticed until the suite had run often enough to
+    exhaust something, which is the kind of failure nobody traces back to the eval.
+    """
+    stack = start_stack(overrides=overrides)
+    try:
+        return await run_case(stack, case)
+    finally:
+        stack.shutdown()
+
+
+async def run(cases: list[dict[str, Any]], *, verbose: bool) -> tuple[list[CaseResult], float]:
+    """Bring up the shared stack, run every case, and take everything down again.
+
+    A case that declares `stack` overrides gets its own stack, because the two settings a case has
+    needed so far are read when the application is built rather than per request. Everything else
+    runs against the one shared stack — deliberately, since a case that passed only because it
+    started from a clean process would hide the state-leak defect this suite exists for.
+    """
+    started = time.monotonic()
+    stack = start_stack()
+    results: list[CaseResult] = []
+
+    try:
+        for case in cases:
+            case_started = time.monotonic()
+            overrides = case.get("stack")
+            if overrides:
+                result = await _run_on_own_stack(case, overrides)
+            else:
+                result = await run_case(stack, case)
+            elapsed = time.monotonic() - case_started
+            results.append(result)
+
+            verdict = "PASS" if result.passed else "FAIL"
+            print(f"  {verdict}  {result.case_id}  ({elapsed:.1f}s)")
+            if not result.passed and verbose:
+                if result.error:
+                    print(f"        {result.error}")
+                for failure in result.failures:
+                    print(f"        {failure.detail}")
+    finally:
+        stack.shutdown()
+
+    return results, time.monotonic() - started
+
+
+def _select(cases: list[dict[str, Any]], only: str | None) -> list[dict[str, Any]]:
+    if not only:
+        return cases
+    chosen = [case for case in cases if only.lower() in str(case["id"]).lower()]
+    if not chosen:
+        raise SystemExit(f"no case id contains {only!r}")
+    return chosen
+
+
+def main(argv: list[str] | None = None) -> int:
+    """The entry point ``python -m eval`` calls. Returns a process exit code."""
+    parser = argparse.ArgumentParser(
+        prog="python -m eval",
+        description="Run the behavioural eval suite against a live agent.",
+    )
+    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
+    parser.add_argument("--results", type=Path, default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--only", default=None, help="run only cases whose id contains this")
+    parser.add_argument("--quiet", action="store_true", help="print the table only")
+    args = parser.parse_args(argv)
+
+    cases = _select(load_cases(args.cases), args.only)
+    print(f"Running {len(cases)} case(s) against a live stack.\n")
+
+    results, duration_s = asyncio.run(run(cases, verbose=not args.quiet))
+    markdown = render_markdown(
+        results,
+        duration_s=duration_s,
+        passed=summarise(results),
+    )
+
+    args.results.mkdir(parents=True, exist_ok=True)
+    (args.results / "latest.json").write_text(
+        json.dumps(_result_payload(results, duration_s=duration_s), indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (args.results / "latest.md").write_text(markdown + "\n", encoding="utf-8")
+
+    print()
+    print(markdown)
+    print()
+    print(f"Wrote {args.results / 'latest.md'} and {args.results / 'latest.json'}")
+
+    failed = [result for result in results if not result.passed]
+    if failed:
+        print(f"\n{len(failed)} case(s) failed.")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through `python -m eval`
+    raise SystemExit(main())

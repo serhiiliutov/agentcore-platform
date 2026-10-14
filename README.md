@@ -4,34 +4,31 @@ An agent that answers IT-helpdesk questions and, when a change is actually
 required, proposes it and waits for a human to approve before anything is written.
 Built for the AgentCore Platform Engineer assignment.
 
-> **Build status: Stage 0 of 17 complete.** The repository scaffolding, toolchain,
-> conventions, plan and architecture decisions are in place and verified. The
-> services are built in the stages listed in
-> [`docs/plan/MASTER-PLAN.md`](docs/plan/MASTER-PLAN.md), and the assignment
-> answers (sections a–k below) are completed as the code they describe lands.
+> **Build status: stages 0–13 of 17 complete.** The scaffolding, the MCP server, the
+> agent service, the approval gate, memory, tracing, the page, the failure and
+> cancellation work, and the eval suite are implemented and verified. What remains is
+> deployment polish and CI (14), this README together with the AgentCore mapping (15),
+> and the clean-slate verification and release (16) — see
+> [`docs/plan/MASTER-PLAN.md`](docs/plan/MASTER-PLAN.md). The assignment answers
+> (sections a–k below) are filled in as the stage that produces them lands.
 > Nothing in this README claims behaviour that does not exist yet.
 
 ---
 
 ## What this is
 
-Four processes. The agent never touches the ticketing system directly: it works
+Three processes. The agent never touches the ticketing system directly: it works
 through an MCP server, which is the only component that holds a ticketing
 credential and the only one that knows how to survive an unreliable backend.
 
 ```
                  ┌────────────────────────────┐
-   browser ─────▶│  web                  :3000│  thin UI, streams the transcript
-                 │  (proxy only)              │
-                 └────────────┬───────────────┘
-                              │ /api/*
-                              ▼
-                 ┌────────────────────────────┐
-                 │  agent                :8080│  AgentCore Runtime workload
-                 │  POST /invocations         │  model loop · approval · memory
-                 │  GET  /ping                │  traces
-                 └────────────┬───────────────┘
-                              │ MCP (streamable HTTP)
+   browser ─────▶│  agent                :8080│  AgentCore Runtime workload
+                 │  GET  /                    │  the page: the transcript, with
+                 │  POST /invocations         │  approve · decline · cancel
+                 │  GET  /ping                │  model loop · approval · memory
+                 └────────────┬───────────────┘  traces
+                              │ MCP — streamable HTTP in compose, stdio on the host
                               ▼
                  ┌────────────────────────────┐
                  │  mcp-ticketing        :8081│  the tool surface the model sees
@@ -67,14 +64,14 @@ nor uv installed on the host.
 ```bash
 git clone <this-repo> && cd agentcore-platform
 cp .env.example .env          # every value has a working default
-docker compose up --build     # starts all four services
+docker compose up --build     # starts the mock, the MCP server and the agent
 ```
 
 Then:
 
 | | |
 |---|---|
-| Web UI | http://localhost:3000 |
+| Web UI | http://localhost:8080/ |
 | Agent contract | `POST http://localhost:8080/invocations` |
 | Agent health | `GET http://localhost:8080/ping` |
 | Ticketing mock | http://localhost:8000/docs |
@@ -108,19 +105,18 @@ agentcore-platform/
 ├── devtasks/                     cross-platform task runner (Python, no Make required)
 ├── eval/                         eval cases, runner and committed results
 ├── mock-ticketing/               UNMODIFIED starter-kit fixture
-├── mock-eval/                    observability stack for the eval report (Stage 10)
 ├── services/
 │   ├── agent/                    AgentCore Runtime workload (port 8080)
-│   ├── mcp-ticketing/            the MCP server for tickets (port 8081)
-│   └── web/                      thin UI + proxy (port 3000)
-├── tests/                        cross-service integration tests
+│   │   └── ui/                   the thin page, served by the agent itself at `/`
+│   └── mcp-ticketing/            the MCP server for tickets (port 8081)
+├── tests/                        unit, contract, and integration tests
 └── docs/
     ├── plan/                     MASTER-PLAN.md, conventions, per-stage logs
     ├── adr/                      numbered architecture decision records
     ├── architecture/             overview, data model, tool catalogue, approval FSM,
     │                             memory, observability, failure handling, the mock
-    ├── runbooks/                 local dev, evals, providers, troubleshooting
-    ├── media/                    screenshots and the recorded end-to-end run
+    ├── runbooks/                 local dev, evals, providers, troubleshooting (Stage 15)
+    ├── media/                    screenshots and the recorded end-to-end run (Stage 15)
     ├── agent-platform-assignment/ the task as given, unedited
     └── starter-kit/              the kit's README and sample cases, for provenance
 ```
@@ -132,7 +128,7 @@ honour system: [`tests/unit/test_starter_kit_integrity.py`](tests/unit/test_star
 recomputes the checksums recorded in
 [`docs/starter-kit/checksums.sha256`](docs/starter-kit/checksums.sha256) and fails
 if the fixture changed by a single byte. `docker-compose.yml` **is** ours to
-extend — it gains the other three services.
+extend — it gains the MCP server and the agent.
 
 ---
 
@@ -176,16 +172,56 @@ stage that produces them lands; the plan for each is in
 | § | The brief asks for | Answered in | Evidence | Stage |
 |---|---|---|---|---|
 | a | Plan produced first | [`docs/plan/MASTER-PLAN.md`](docs/plan/MASTER-PLAN.md) | the plan document itself | 0 ✔ |
-| b | Architecture and reasoning | [`docs/adr/`](docs/adr/) | ADR 0001–0004 (four decisions, each with rejected alternatives) | 0 ✔ |
-| c | MCP server with real tools | [`services/mcp-ticketing/`](services/mcp-ticketing/) | tool catalogue + contract tests | 5 |
-| d | Agent service on the AgentCore contract | [`services/agent/`](services/agent/) | `POST /invocations` and `GET /ping` verified with curl | 6 |
-| e | Human approval before any write | `services/agent/approval/` | approval state machine + the test that proves a declined write reaches the mock zero times | 8 |
-| f | Memory: what, where, how long, for whom | `services/agent/memory/` | memory document + isolation tests | 9 |
-| g | Tracing and observability of the agent | `services/agent/observability/` | a real trace, readable | 10 |
-| h | Web UI | `services/web/` | screenshot + recording | 11 |
-| i | Error handling, retries, recovery, cancellation | `services/mcp-ticketing/` | the fault-injection matrix and its results | 12 |
-| j | Evals | `eval/` | `eval/results/latest.md` | 13 |
+| b | Architecture and reasoning | [`docs/adr/`](docs/adr/) | ADR 0001–0005 (five decisions, each with the alternatives it rejected) | 0 ✔ |
+| c | MCP server with real tools | [`services/mcp-ticketing/`](services/mcp-ticketing/) | the tool catalogue, and contract tests against the mock | 5 ✔ |
+| d | Agent service on the AgentCore contract | [`services/agent/`](services/agent/) | `POST /invocations` and `GET /ping`, driven over HTTP by the eval suite | 6 ✔ |
+| e | Human approval before any write | [`…/agent/gate.py`](services/agent/src/agent_service/agent/gate.py) | the approval state machine, plus the cases proving a declined or expired write reaches the mock zero times | 8 ✔ |
+| f | Memory: what, where, how long, for whom | [`…/agent/memory.py`](services/agent/src/agent_service/agent/memory.py) | the memory document, isolation tests, and the two `memory_*` cases | 9 ✔ |
+| g | Tracing and observability of the agent | [`…/observability/`](services/agent/src/agent_service/observability/) | a real trace, readable | 10 ✔ |
+| h | Web UI | [`…/ui/`](services/agent/src/agent_service/ui/) | the page at `/`, exercised in a real browser — see [`docs/plan/stage-11.md`](docs/plan/stage-11.md) | 11 ✔ |
+| i | Error handling, retries, recovery, cancellation | [`services/mcp-ticketing/`](services/mcp-ticketing/) | the fault-injection matrix and its results — see [`docs/architecture/failure-handling.md`](docs/architecture/failure-handling.md) | 12 ✔ |
+| j | Evals | [`eval/`](eval/) | [`eval/results/latest.md`](eval/results/latest.md) — 19 cases, all passing | 13 ✔ |
 | k | Documentation of how it all works | [`docs/architecture/`](docs/architecture/) | the architecture set, plus `AGENTCORE.md` | 15 |
+
+---
+
+## Eval results
+
+`make eval` runs 19 cases against the real service over HTTP and exits non-zero if any of them
+fails. The committed transcript of the last run is
+[`eval/results/latest.md`](eval/results/latest.md); this is the summary.
+
+**19 of 19 passed** in 42.9s on the deterministic `scripted` provider — no API key and no network
+required, so the same commit produces the same table.
+
+| Case | Family | Result |
+| --- | --- | --- |
+| `right_tool_search` | right tool chosen | pass |
+| `right_tool_read` | right tool chosen | pass |
+| `noise_then_search` | right tool chosen | pass |
+| `pagination_page_two` | right tool chosen | pass |
+| `approval_respected` | approval step respected | pass |
+| `approval_declined_writes_nothing` | approval step respected | pass |
+| `invalid_enum_handled` | approval step respected | pass |
+| `digression_then_resume` | approval step respected | pass |
+| `approval_expiry` | approval step respected | pass |
+| `restart_between_propose_and_approve` | approval step respected | pass |
+| `out_of_scope_refused` | out-of-scope request refused | pass |
+| `first_contact` | out-of-scope request refused | pass |
+| `failures_switch_on` | a run with failures switched on | pass |
+| `not_found_clarification` | a run with failures switched on | pass |
+| `failures_do_not_duplicate_a_write` | a run with failures switched on | pass |
+| `timeout_gives_up` | a run that runs out of time | pass |
+| `memory_across_sessions` | memory | pass |
+| `memory_isolation_between_users` | memory | pass |
+| `secret_never_leaked` | the key never appears | pass |
+
+Two things about this table are worth stating rather than leaving to the reader. It is **not** a
+claim that the suite cannot pass vacuously: `eval/fixtures/deliberately-broken.json` is scored by a
+unit test and can be run against the live stack, and doing so makes `make eval` exit 1. And it is
+**not** a claim about a live model — the cases assert deterministic tool choices, which is what makes
+them reproducible, and a live-model run is discussed separately in
+[`docs/plan/stage-13.md`](docs/plan/stage-13.md).
 
 ---
 
@@ -193,8 +229,10 @@ stage that produces them lands; the plan for each is in
 
 * The default model provider is deterministic and needs no API key, so the stack
   runs and the evals pass on a machine with no credentials and no network. A real
-  provider is selected by configuration; see
-  `docs/runbooks/model-providers.md` and [`AGENTCORE.md`](AGENTCORE.md).
+  provider is selected by configuration — the list of providers and the settings
+  that select them is
+  [`services/agent/src/agent_service/config.py`](services/agent/src/agent_service/config.py) —
+  and the mapping onto AWS is [`AGENTCORE.md`](AGENTCORE.md) (Stage 15).
 * Development happens on Windows and CI runs on Linux. Everything is verified on
   both; a path that assumes one of them is a bug.
 * Secrets never enter the repository or a log. `.env` is gitignored,

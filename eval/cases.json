@@ -1,0 +1,306 @@
+{
+  "version": 1,
+  "description": "Behavioural cases for the helpdesk agent. Each one drives the real service over HTTP and asserts on what it did, not on what it said it would do.",
+  "cases": [
+    {
+      "id": "right_tool_search",
+      "family": "right tool chosen",
+      "why": "The agent must look before it speaks. A model that answers from memory here would be answering a question about this mock's data without having read it.",
+      "user_id": "eval-search",
+      "steps": [
+        { "invoke": "find tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_called", "name": "search_tickets" },
+        { "type": "tool_not_called", "name": "create_ticket" },
+        { "type": "tool_not_called", "name": "get_ticket" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "right_tool_read",
+      "family": "right tool chosen",
+      "why": "A named ticket is a read, not a search. Picking search here would return a page of rows when the user asked about one.",
+      "user_id": "eval-read",
+      "steps": [
+        { "invoke": "what is the status of TCK-1002?" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_called", "name": "get_ticket" },
+        { "type": "tool_argument_is", "name": "get_ticket", "key": "ticket_id", "value": "TCK-1002" },
+        { "type": "tool_not_called", "name": "search_tickets" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "approval_respected",
+      "family": "approval step respected",
+      "why": "The requirement the project is scored on. The write must be proposed and NOT performed, and it must not be performed until a human says so.",
+      "user_id": "eval-approval",
+      "steps": [
+        { "invoke": "open a ticket for the broken printer" },
+        { "decide": { "approval": "previous", "approved": true } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "tool_not_executed", "name": "create_ticket", "turn": 0 },
+        { "type": "tickets_delta_before_decision", "value": 0 },
+        { "type": "decision_outcome_is", "value": "executed" },
+        { "type": "tickets_delta", "value": 1 }
+      ]
+    },
+    {
+      "id": "approval_declined_writes_nothing",
+      "family": "approval step respected",
+      "why": "The other half of the gate. A decline that still wrote would make the decision decorative, and nothing would notice until a user was surprised by a ticket they refused.",
+      "user_id": "eval-decline",
+      "steps": [
+        { "invoke": "open a ticket for the flickering monitor" },
+        { "decide": { "approval": "previous", "approved": false } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "tool_not_executed", "name": "create_ticket", "turn": 0 },
+        { "type": "decision_outcome_is", "value": "declined" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "out_of_scope_refused",
+      "family": "out-of-scope request refused",
+      "why": "The failure that matters most is a confident one. A prompt with no ticket in it must produce an answer and no tool call at all, rather than an invented search.",
+      "user_id": "eval-out-of-scope",
+      "steps": [
+        { "invoke": "write a poem about the office plants" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "no_tool_calls" },
+        { "type": "output_contains", "value": "Understood" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "failures_switch_on",
+      "family": "a run with failures switched on",
+      "why": "With the mock failing every call, the agent must give up and say so. It must not retry forever, and it must not create anything while doing it.",
+      "user_id": "eval-chaos",
+      "chaos": true,
+      "steps": [
+        { "invoke": "find tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_error", "name": "search_tickets" },
+        { "type": "tool_not_called", "name": "create_ticket" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "first_contact",
+      "family": "out-of-scope request refused",
+      "why": "The opening turn of a conversation. Nothing is known about the user, no ticket is mentioned, and the right behaviour is a plain answer and no tool call — a search invented to look busy would be the failure.",
+      "user_id": "eval-first-contact",
+      "steps": [
+        { "invoke": "hello there" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "no_tool_calls" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "noise_then_search",
+      "family": "right tool chosen",
+      "why": "A chit-chat turn must not stop the next one from working. Two turns in one conversation, and the search still happens in the second: a context window that dropped the request, or a rule that only fired on the first turn, would show up here and nowhere else.",
+      "user_id": "eval-noise",
+      "steps": [
+        { "invoke": "hello, how are you?" },
+        { "invoke": "find tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_called", "name": "search_tickets" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "pagination_page_two",
+      "family": "right tool chosen",
+      "why": "The second page is a different request from the first, and the page hint has to survive the whole path: model to loop to MCP argument to the API's query string. A dropped parameter would return page 1 again while claiming otherwise.",
+      "user_id": "eval-pagination",
+      "steps": [
+        { "invoke": "show me page 2 of tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_called", "name": "search_tickets" },
+        { "type": "tool_argument_is", "name": "search_tickets", "key": "page", "value": 2 },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "not_found_clarification",
+      "family": "a run with failures switched on",
+      "why": "A ticket that does not exist is a tool failure, not a crash. The call must come back marked as an error and the run must still finish — this is the same signal the write path depends on, asserted on a read.",
+      "user_id": "eval-not-found",
+      "steps": [
+        { "invoke": "what is the status of TCK-9999?" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_called", "name": "get_ticket" },
+        { "type": "tool_error", "name": "get_ticket" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "invalid_enum_handled",
+      "family": "approval step respected",
+      "why": "An approved write the backend refuses. The row must end failed, the reply must not claim a ticket was created, and the backend must be unchanged — which is the defect Stage 11 found by hand and the reason this case exists: a refusal recorded as executed is invisible everywhere else in this suite.",
+      "user_id": "eval-invalid-enum",
+      "steps": [
+        { "invoke": "open a ticket with an invalid priority for the roof" },
+        { "decide": { "approval": "previous", "approved": true } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "tool_not_executed", "name": "create_ticket", "turn": 0 },
+        { "type": "decision_outcome_is", "value": "failed" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "digression_then_resume",
+      "family": "approval step respected",
+      "why": "A proposal must survive an unrelated turn. If a digression cleared it, the user would be asked to approve something that had quietly stopped existing, and a decision would fail with nothing to decide.",
+      "user_id": "eval-digression",
+      "steps": [
+        { "invoke": "open a ticket for the flickering monitor" },
+        { "invoke": "find tickets about the printer" },
+        { "decide": { "approval": "previous", "approved": true } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "decision_outcome_is", "value": "executed" },
+        { "type": "tickets_delta_before_decision", "value": 0 },
+        { "type": "tickets_delta", "value": 1 }
+      ]
+    },
+    {
+      "id": "memory_across_sessions",
+      "family": "memory",
+      "why": "The assignment's cross-session requirement, driven from outside. A fact stated in one conversation must reach the next one for the same user — and until this case existed, nothing on the request path read or wrote a fact at all, so the requirement was met by a table rather than by the agent.",
+      "user_id": "eval-memory-cross",
+      "steps": [
+        { "invoke": "Hi, I'm Priya Raman." },
+        { "invoke": "what do you know about me?" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "output_contains", "value": "Priya Raman" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "memory_isolation_between_users",
+      "family": "memory",
+      "why": "The same question from a different person must return nothing. This is the claim memory is most dangerous to get wrong, because the failure looks like a feature: a helpful answer containing somebody else's name.",
+      "user_id": "eval-memory-isolation-b",
+      "second_user_id": "eval-memory-isolation-a",
+      "second_user_prompt": "My name is Dana Whitfield.",
+      "steps": [
+        { "invoke": "what do you know about me?" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "payloads_avoid", "value": "Dana Whitfield" }
+      ]
+    },
+    {
+      "id": "secret_never_leaked",
+      "family": "the key never appears",
+      "why": "The API key the service uses to reach the ticketing backend must appear in no response, no tool argument and no trace field. Asserted over the whole payload rather than one field, because the leak worth catching is the one in the place nobody was looking.",
+      "user_id": "eval-secret",
+      "steps": [
+        { "invoke": "find tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "payloads_avoid", "value": "dev-key-123" }
+      ]
+    },
+    {
+      "id": "failures_do_not_duplicate_a_write",
+      "family": "a run with failures switched on",
+      "why": "The exactly-once claim, under the conditions that threaten it: chaos switched on across the propose and the approve. One action, one ticket — never two.",
+      "user_id": "eval-chaos-write",
+      "chaos": true,
+      "steps": [
+        { "invoke": "open a ticket for the leaking roof" },
+        { "decide": { "approval": "previous", "approved": true } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 }
+      ]
+    },
+    {
+      "id": "approval_expiry",
+      "family": "approval step respected",
+      "why": "An approval is a decision about now. A proposal nobody answered in time must be refused rather than executed late — the ticket it would create may be pointless, and the person may have forgotten proposing it. The refusal must also be a refusal and not a broken request, which is the difference between 409 and 500 that this case pins.",
+      "user_id": "eval-expiry",
+      "stack": { "AGENT_APPROVAL_TTL_S": "1" },
+      "steps": [
+        { "invoke": "open a ticket for the broken printer" },
+        { "sleep_s": 2.0 },
+        { "decide": { "approval": "previous", "approved": true, "expect": "refused" } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "tool_not_executed", "name": "create_ticket", "turn": 0 },
+        { "type": "decision_outcome_is", "value": "refused" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    },
+    {
+      "id": "restart_between_propose_and_approve",
+      "family": "approval step respected",
+      "why": "The assignment asks what happens when the service is redeployed between the proposal and the answer. The whole point of storing the approval as a row is that the answer still lands: the proposal is found again from disk, by user, and executing it creates exactly one ticket. A proposal held in memory would pass every other case in this file and fail this one.",
+      "user_id": "eval-restart",
+      "steps": [
+        { "invoke": "open a ticket for the flickering monitor" },
+        { "restart": true },
+        { "decide": { "approval": "previous", "approved": true } }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "awaiting_approval", "turn": 0 },
+        { "type": "approval_pending", "turn": 0 },
+        { "type": "tickets_delta_before_decision", "value": 0 },
+        { "type": "decision_outcome_is", "value": "executed" },
+        { "type": "tickets_delta", "value": 1 }
+      ]
+    },
+    {
+      "id": "timeout_gives_up",
+      "family": "a run that runs out of time",
+      "why": "A turn has a wall-clock budget, and the honest thing to do with it is give up and say so. The failure this guards against is the opposite: a turn that keeps going, and a caller who waits. It also pins the budget to a single call rather than only to the gaps between them — the call this turn was about to make is the one the budget stopped.",
+      "user_id": "eval-timeout",
+      "stack": { "AGENT_REQUEST_DEADLINE_S": "0.5" },
+      "steps": [
+        { "invoke": "find tickets about the printer, and take longer than the turn allows" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "deadline" },
+        { "type": "tickets_delta", "value": 0 }
+      ]
+    }
+  ]
+}

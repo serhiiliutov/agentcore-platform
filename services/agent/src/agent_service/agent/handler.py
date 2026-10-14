@@ -38,12 +38,14 @@ from agent_service.api.models import (
 )
 from agent_service.db.models.approval import Approval
 from agent_service.db.repositories.approvals import ApprovalRepository
+from agent_service.db.repositories.facts import FactRepository
 from agent_service.db.repositories.sessions import SessionRepository
 from agent_service.db.repositories.traces import TraceRepository
 from agent_service.observability import MODEL_TURN, Tracer
 from agent_service.providers.base import Message, ModelProvider
 from agent_service.tools.registry import ToolRegistry
 
+from . import memory
 from .loop import AgentLoop, LoopLimits, ToolCallRecord as LoopCallRecord, ToolExecutor, TurnResult
 
 #: Where traces go when the factory is not told otherwise. Relative rather than absolute so a
@@ -75,6 +77,13 @@ STOP_REASON_MAP: dict[str, StopReason] = {
 #: ``completed``: an unrecognised stop is not an answer, and reporting it as one would tell a
 #: caller the turn succeeded when nothing has established that.
 UNMAPPED_STOP_REASON: StopReason = "error"
+
+#: The loop outcomes that mean a call did not produce an answer. ``proposed`` is deliberately
+#: absent from this set, and that is the whole point of having it: a write waiting for a human has
+#: not failed. Treating it as an error — which ``outcome != "executed"`` did — meant every turn of
+#: the approval workflow reported its own proposal as a failed call, so anything counting errors
+#: counted normal approvals, and any client rendering the list painted the proposal red.
+FAILED_OUTCOMES = frozenset({"failed", "refused"})
 
 #: The prompt the model is given, before any user text. Written here rather than in a config
 #: file because it encodes product decisions — what the agent may claim about its own
@@ -158,14 +167,22 @@ def to_invocation_response(
 def _record(record: LoopCallRecord) -> ToolCallRecord:
     """One loop record as a contract record.
 
-    ``is_error`` is derived from the outcome rather than from the tool's text: a refused call
-    and a call whose tool returned an error are both things the user should see as not having
-    produced an answer, and keying on the text would miss the first.
+    ``outcome`` is passed through rather than collapsed, because the three states mean three
+    different things to a caller: ``executed`` produced a result, ``failed`` and ``refused`` did
+    not, and ``proposed`` is waiting on a person. Only the boolean was published before, and
+    deriving it as "anything that is not executed" made a proposal indistinguishable from a
+    failure — the one distinction a client showing an approval prompt has to make.
+
+    ``is_error`` is kept as the derived convenience, so a caller that only cares whether the call
+    produced an answer does not have to know the vocabulary. It is derived from the outcome and
+    never from the tool's text: keying on a sentence would make this depend on wording the MCP
+    layer owns, and a reworded error would silently start reading as a success.
     """
     return ToolCallRecord(
         name=record.call.name,
         arguments=dict(record.call.arguments),
-        is_error=record.outcome != "executed",
+        outcome=record.outcome,
+        is_error=record.outcome in FAILED_OUTCOMES,
         summary=record.detail,
     )
 
@@ -214,6 +231,7 @@ class InvocationHandlerFactory:
         trace_warnings: Callable[[BaseException], None] | None = None,
         runs: InflightRegistry | None = None,
         turn_budget_s: float = DEFAULT_TURN_BUDGET_S,
+        fact_ttl_days: int | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -232,6 +250,9 @@ class InvocationHandlerFactory:
         #: per call, so an operator can answer "why did that take forty seconds" — see
         #: `agent/budget.py`.
         self._turn_budget_s = turn_budget_s
+        #: How long a remembered fact stays current. ``None`` leaves the repository's default, so
+        #: a caller that does not care about memory lifetimes need not pass one.
+        self._fact_ttl_days = fact_ttl_days
 
     async def __call__(
         self,
@@ -264,6 +285,17 @@ class InvocationHandlerFactory:
         sessions.ensure(session_id, user_id=request.user_id)
         history = sessions.history(session_id, user_id=request.user_id)
 
+        # What this person has said in *earlier* conversations. Read per turn rather than cached,
+        # because a fact can be learned, forgotten or expire between two requests, and a cached
+        # copy would keep answering with something the store no longer holds.
+        #
+        # Injected into the system prompt rather than into the transcript, which is the decision
+        # worth stating: the transcript is the record of what was said, and a memory preamble
+        # written into it would be replayed as if the user had typed it — and would then be
+        # summarised, quoted back, and eventually stored anew as a fact about them.
+        fact_store = FactRepository(session)
+        known_facts = fact_store.recall(user_id=request.user_id)
+
         # Registered before the loop runs, so a cancel arriving at any point during the turn finds
         # a token to set. Registering after would leave a window in which the endpoint answers
         # "nothing was running" for a turn that is very much running.
@@ -283,7 +315,7 @@ class InvocationHandlerFactory:
             session_id=session_id,
             user_id=request.user_id,
             limits=self._limits,
-            system_prompt=self._system_prompt,
+            system_prompt=memory.with_facts(self._system_prompt, known_facts),
             deadline=Deadline(budget_s=self._turn_budget_s),
             cancel=run.token if run is not None else None,
         )
@@ -310,6 +342,17 @@ class InvocationHandlerFactory:
             session_id,
             user_id=request.user_id,
             messages=_turn_messages(request.prompt, result),
+        )
+
+        # Learned from this turn, and stored after it so a fact is only ever recorded for a turn
+        # that is also in the transcript. Only the user's own prompt is read — not the assistant's
+        # reply and not a tool result — which is the whitelist's real job; see `agent/memory.py`.
+        memory.remember(
+            fact_store,
+            user_id=request.user_id,
+            session_id=session_id,
+            prompt=request.prompt,
+            ttl_days=self._fact_ttl_days,
         )
 
         # Recorded after the turn is stored, so a trace row never describes a turn the

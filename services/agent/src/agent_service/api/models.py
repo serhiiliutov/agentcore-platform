@@ -63,6 +63,16 @@ class InvocationRequest(BaseModel):
     session_id: str | None = None
 
 
+#: What became of one tool call. Three of these are facts about the call and one is a fact about
+#: the world, which is why they cannot be collapsed into a boolean.
+#:
+#: ``proposed`` is the one that matters: the write has *not* been attempted, and a caller showing
+#: an approval prompt needs to know that. Deriving "did this fail" from "was this executed" made
+#: a proposal indistinguishable from a failure, which is the single most consequential field in
+#: the whole approval workflow to get wrong.
+ToolOutcome = Literal["executed", "failed", "proposed", "refused"]
+
+
 class ToolCallRecord(BaseModel):
     """One tool call the agent made, recorded for the caller's benefit.
 
@@ -73,6 +83,11 @@ class ToolCallRecord(BaseModel):
 
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    #: What became of the call. See `ToolOutcome` — in particular, ``proposed`` is not a failure.
+    outcome: ToolOutcome = "executed"
+    #: Whether the call failed to produce an answer. Redundant with ``outcome`` by design: it is
+    #: the question most callers actually have, and making them derive it is how they get it
+    #: wrong. True for ``failed`` and ``refused``; false for ``executed`` and ``proposed``.
     is_error: bool = False
     #: The tool's own sentence, already written for a reader.
     summary: str = ""

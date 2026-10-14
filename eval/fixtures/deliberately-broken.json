@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "description": "The deliberately-wrong case: the proof that a broken case fails the run. Not part of cases.json on purpose — it must never be scored as part of a real run.",
+  "cases": [
+    {
+      "id": "deliberately_wrong",
+      "family": "the suite can fail",
+      "why": "Stage 13's definition of done asks for a case proven able to fail the run, not merely assumed to be. This one asserts a ticket that was never created and a tool that was never called, so a suite that reported it as passing would be measuring nothing.",
+      "user_id": "eval-broken",
+      "steps": [
+        { "invoke": "find tickets about the printer" }
+      ],
+      "assertions": [
+        { "type": "stop_reason_is", "value": "completed" },
+        { "type": "tool_called", "name": "create_ticket" },
+        { "type": "tickets_delta", "value": 1 }
+      ]
+    }
+  ]
+}

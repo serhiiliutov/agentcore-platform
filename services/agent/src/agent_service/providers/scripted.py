@@ -13,13 +13,20 @@ the same turn, and a failing eval can be re-run to the same failure.
 
 The rule set deliberately includes one write. An eval that never proposes a write cannot test
 the approval gate, and the approval gate is the requirement this project is scored on.
+
+One rule is here for its *duration* rather than its decision. A turn deadline is a wall-clock
+allowance, and the only honest way to exhaust one is for something inside the turn to take too
+long — so `slow_turn` waits before it answers. Putting that wait in the mock instead would have
+made every case slower to prove one thing about the loop.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from agent_service.config import ProviderName
 
@@ -64,6 +71,9 @@ class Rule:
     name: str
     matches: Callable[[Sequence[Message]], bool]
     emit: Callable[[Sequence[Message]], AssistantTurn]
+    #: Seconds to wait before emitting, when the rule fires. Zero for every rule whose point is
+    #: the decision it makes rather than the time it takes. Honoured in one place, in `chat`.
+    delay_s: float = 0.0
 
 
 @dataclass
@@ -105,6 +115,10 @@ class ScriptedProvider:
 
         for rule in self.rules:
             if rule.matches(messages):
+                if rule.delay_s:
+                    # The one place a delay is honoured, so "which rules are slow" is answerable
+                    # by reading the rule list rather than by reading the provider.
+                    await asyncio.sleep(rule.delay_s)
                 turn = rule.emit(messages)
                 # A rule that wanted a tool the server does not offer must not produce an
                 # uncallable turn; fall through to a plain answer instead of failing later.
@@ -157,6 +171,39 @@ def _summarise(messages: Sequence[Message]) -> str:
 
 
 # --- The default program ------------------------------------------------------
+
+
+def _matches_invalid_enum(messages: Sequence[Message]) -> bool:
+    """A prompt that asks, in as many words, for a value the server will reject.
+
+    This rule exists so the refusal path is *reachable* by an eval. The mock's priority is a
+    four-value literal, and a write carrying anything else is refused — which is the case worth
+    having, because the defect it guards against is a refused write being recorded as executed.
+    A provider that only ever sends valid arguments cannot produce that case at all.
+    """
+    return not _has_tool_result(messages) and "invalid priority" in _last_user_text(messages)
+
+
+def _emit_invalid_enum(messages: Sequence[Message]) -> AssistantTurn:
+    text = _last_user_text(messages)
+    return AssistantTurn(
+        text="I will open a ticket for that.",
+        tool_calls=(
+            ToolCallRequest(
+                id="scripted-call-invalid",
+                name="create_ticket",
+                arguments={
+                    "client_request_id": "scripted-invalid-1",
+                    "title": _title_from(text),
+                    "requester": SCRIPTED_REQUESTER,
+                    # Not a value the server accepts, and deliberately so.
+                    "priority": "impossible",
+                    "category": SCRIPTED_CATEGORY,
+                },
+            ),
+        ),
+        stop_reason="tool_use",
+    )
 
 
 def _matches_create_ticket(messages: Sequence[Message]) -> bool:
@@ -212,6 +259,36 @@ def _title_from(text: str) -> str:
     return cleaned[:120]
 
 
+#: The phrase that makes a turn deliberately outlast its budget. Named as a constant so the eval
+#: case and the rule cannot drift apart, and phrased as an instruction rather than as a marker so
+#: the prompt a reviewer reads in `cases.json` explains itself.
+SLOW_TURN_PHRASE = "take longer than the turn"
+
+#: How long `slow_turn` waits. Comfortably longer than the sub-second budget the deadline case
+#: configures, and short enough that the case costs about two seconds — a suite whose timeout
+#: test takes as long as a real timeout is a suite people skip.
+SLOW_TURN_DELAY_S = 2.0
+
+
+def _matches_slow_turn(messages: Sequence[Message]) -> bool:
+    """A prompt that asks the turn to be slow, before any tool has run.
+
+    Guarded on ``not _has_tool_result`` like the other rules, so it cannot fire twice in one
+    conversation and add its delay again.
+    """
+    return not _has_tool_result(messages) and SLOW_TURN_PHRASE in _last_user_text(messages)
+
+
+def _emit_slow_turn(messages: Sequence[Message]) -> AssistantTurn:
+    """Search, having first spent more than the turn had.
+
+    Emitting a search rather than nothing is the point: the turn is cut short *while trying to do
+    the work*, which is the situation the deadline exists for. A slow turn that emitted nothing
+    would end as a plain answer and would prove nothing about the budget.
+    """
+    return _emit_search(messages)
+
+
 def _matches_search(messages: Sequence[Message]) -> bool:
     """A search request, before any search has run."""
     text = _last_user_text(messages)
@@ -222,17 +299,35 @@ def _matches_search(messages: Sequence[Message]) -> bool:
 
 def _emit_search(messages: Sequence[Message]) -> AssistantTurn:
     text = _last_user_text(messages)
+    arguments: dict[str, Any] = {"q": _query_from(text)}
+    # Sent only when the prompt names a page. Defaulting every search to "page 1" would put a
+    # parameter in the recorded arguments that the user never asked for, and the eval that checks
+    # a page hint should be able to tell a requested page from a defaulted one.
+    page = _page_from(text)
+    if page > 1:
+        arguments["page"] = page
+
     return AssistantTurn(
         text="Searching for matching tickets.",
         tool_calls=(
             ToolCallRequest(
                 id="scripted-call-search",
                 name="search_tickets",
-                arguments={"q": _query_from(text)},
+                arguments=arguments,
             ),
         ),
         stop_reason="tool_use",
     )
+
+
+#: "page 2", wherever it appears in a search request.
+_PAGE_PATTERN = re.compile(r"\bpage\s+(\d+)\b", re.IGNORECASE)
+
+
+def _page_from(text: str) -> int:
+    """The page the prompt asked for, or 1."""
+    match = _PAGE_PATTERN.search(text)
+    return int(match.group(1)) if match else 1
 
 
 def _query_from(text: str) -> str:
@@ -310,6 +405,48 @@ def _emit_get_ticket(messages: Sequence[Message]) -> AssistantTurn:
     )
 
 
+def _facts_block(messages: Sequence[Message]) -> str:
+    """Whatever the system prompt was told about this user, or an empty string.
+
+    Imported inside the function rather than at module scope: `agent.memory` reaches into the
+    database package, and importing it at import time would make every consumer of the provider
+    package pull the persistence layer in with it. A function-local import has no such effect.
+    """
+    from agent_service.agent.memory import FACTS_HEADING
+
+    for message in messages:
+        if message.role == "system" and FACTS_HEADING in message.content:
+            return message.content.split(FACTS_HEADING, 1)[1].strip()
+    return ""
+
+
+def _matches_recall(messages: Sequence[Message]) -> bool:
+    """A question about what is remembered, at any point in the conversation.
+
+    Deliberately not guarded on ``not _has_tool_result``: the question is answerable before or
+    after a search, and requiring a clean conversation would make the rule unreachable in the
+    multi-turn cases that need it.
+    """
+    return "what do you know" in _last_user_text(messages)
+
+
+def _emit_recall(messages: Sequence[Message]) -> AssistantTurn:
+    """Read back the memory block.
+
+    This is the rule that makes cross-session memory *observable* over HTTP. Without it the only
+    evidence that a fact reached the prompt would be inside the prompt, and an eval cannot assert
+    on a prompt it cannot see. It is a scripted-provider affordance, not a claim that a real model
+    would answer this way — but the thing it observes, that the fact arrived, is real.
+    """
+    block = _facts_block(messages)
+    if not block:
+        return AssistantTurn(
+            text="I do not have anything remembered about you yet.",
+            stop_reason="end_turn",
+        )
+    return AssistantTurn(text=f"Here is what I have on file:\n{block}", stop_reason="end_turn")
+
+
 def _matches_answer_after_tools(messages: Sequence[Message]) -> bool:
     """Anything after at least one tool result: report rather than call again.
 
@@ -331,8 +468,20 @@ def _emit_answer_after_tools(messages: Sequence[Message]) -> AssistantTurn:
 
 
 #: Ordered, first-match-wins. The order encodes the decision procedure, so it is worth
-#: reading top to bottom: explicit ticket reference, then a write, then a search, then report.
+#: reading top to bottom: a deliberately slow turn, a question about memory, an explicit ticket
+#: reference, then a write, then a search, then report.
+#:
+#: ``recall_facts`` is first among the *decisions* because it asks about the conversation itself
+#: rather than about the ticket system, and every rule below it would otherwise answer that
+#: question differently depending on whether a tool had already run. ``slow_turn`` precedes even
+#: that, because a prompt that asks to be slow has asked for the delay and nothing else, and a
+#: later rule would answer it before the delay could happen.
 DEFAULT_RULES: tuple[Rule, ...] = (
+    Rule("slow_turn", _matches_slow_turn, _emit_slow_turn, delay_s=SLOW_TURN_DELAY_S),
+    Rule("recall_facts", _matches_recall, _emit_recall),
+    # Before `create_ticket`, and both are creates: the invalid-enum prompt also says "open a
+    # ticket", so the more specific rule has to win.
+    Rule("invalid_enum", _matches_invalid_enum, _emit_invalid_enum),
     Rule("create_ticket", _matches_create_ticket, _emit_create_ticket),
     Rule("get_ticket", _matches_get_ticket, _emit_get_ticket),
     Rule("search_tickets", _matches_search, _emit_search),

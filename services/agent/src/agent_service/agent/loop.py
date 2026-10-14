@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from agent_service.agent.budget import (
     CancelToken,
@@ -58,19 +58,44 @@ from agent_service.tools.registry import ToolRegistry
 TurnStop = StopReason | str
 
 
+@dataclass(frozen=True)
+class ToolOutcome:
+    """What one tool call produced: the text a model reads, and whether it worked.
+
+    The two travel together because the loop needs both and can derive neither from the other.
+    The text goes into the conversation; `is_error` is what lets the loop describe the call
+    accurately in the response. Returning only the text — which is what this used to do — left
+    the loop unable to tell a search that found rows from one the backend refused, so every call
+    was recorded as having executed and a refusal was reported to the caller as an answer.
+
+    Deliberately not inferred from the text. The MCP layer already knows whether the tool
+    failed, and a prefix convention here would make the loop depend on the exact wording of a
+    message it does not own — so a reworded error would quietly start reading as a success.
+    """
+
+    text: str
+    is_error: bool = False
+    #: The backend answered "already done" rather than doing it again. Only writes can set this,
+    #: and it is carried as data rather than recovered from ``text`` for the same reason
+    #: ``is_error`` is: a caller that reads a sentence for a marker is coupled to wording it does
+    #: not own, and the ticketing server's sentence for this case — "already existed for this
+    #: request" — contains no marker that a search would find.
+    replayed: bool = False
+
+
 class ToolExecutor(Protocol):
     """How the loop runs a read-only tool.
 
     A Protocol, as in Stages 4 and 6, so a test drives the loop with a scripted executor and no
     server — while the real MCP client is still checked against the same shape. Note the
-    signature returns a *string*: this is the result as a model will read it, which is what the
-    MCP server already produces and what the loop feeds back.
+    signature returns a `ToolOutcome`: the result as a model will read it, *and* whether the call
+    succeeded — which the loop needs in order to report the call accurately to the caller.
     """
 
     async def call(
         self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
-    ) -> str:
-        """Run one tool and return its result as text.
+    ) -> ToolOutcome:
+        """Run one tool and return its result.
 
         ``timeout_s`` is the slice the turn has left, computed by the loop from its own deadline.
         Optional so a test executor need not care about clocks; when omitted, an implementation
@@ -94,17 +119,28 @@ class LoopLimits:
     approval_ttl_seconds: int = 1800
 
 
+#: What became of one tool call. Declared here, where the values are decided, and deliberately
+#: spelled identically to the published contract: the two are the same four words, so saying it
+#: once in a type means a value this loop invents cannot reach the wire unnamed — the checker
+#: rejects it at the assignment rather than the response quietly carrying a fifth outcome.
+ToolOutcomeValue = Literal["executed", "failed", "proposed", "refused"]
+
+
 @dataclass(frozen=True)
 class ToolCallRecord:
     """What the loop did with one requested call, for the trace and the response.
 
-    ``outcome`` is one of ``executed``, ``proposed`` or ``refused``. It is recorded per call
-    rather than aggregated because a turn may mix them — one search that ran and one write that
-    now needs approval — and a caller needs to report both accurately.
+    ``outcome`` is one of ``executed``, ``failed``, ``proposed`` or ``refused``. It is recorded
+    per call rather than aggregated because a turn may mix them — one search that ran and one
+    write that now needs approval — and a caller needs to report both accurately.
+
+    ``failed`` exists because ``executed`` alone cannot describe a call the tool itself refused:
+    the call ran, the backend said no, and a caller told only ``executed`` would report a refusal
+    as an answer. `ToolOutcome.is_error` is where that fact arrives.
     """
 
     call: ToolCallRequest
-    outcome: str
+    outcome: ToolOutcomeValue
     detail: str = ""
 
 
@@ -346,9 +382,19 @@ class AgentLoop:
                 )
                 continue
 
-            text = await self._call(call)
-            records.append(ToolCallRecord(call=call, outcome="executed", detail=""))
-            messages.append(Message.tool_result(call, text))
+            outcome = await self._call(call)
+            records.append(
+                ToolCallRecord(
+                    call=call,
+                    outcome="failed" if outcome.is_error else "executed",
+                    # The tool's own sentence, kept rather than discarded. This used to be
+                    # thrown away, which is what made a failed call indistinguishable from a
+                    # successful one in the response — the only trace of the failure was the
+                    # text fed to the model.
+                    detail=outcome.text,
+                )
+            )
+            messages.append(Message.tool_result(call, outcome.text))
 
     def _checkpoint(self) -> None:
         """Stop between steps if the run was cancelled or the turn is out of time.
@@ -363,7 +409,7 @@ class AgentLoop:
         if self._deadline is not None and self._deadline.expired:
             raise DeadlineExceededError(self._deadline.budget_s, self._deadline.spent_s)
 
-    async def _call(self, call: ToolCallRequest) -> str:
+    async def _call(self, call: ToolCallRequest) -> ToolOutcome:
         """Run one tool, turning a transport failure into something the model can read.
 
         The slice granted here is what makes the deadline bound a *single* call rather than only
@@ -381,7 +427,14 @@ class AgentLoop:
             # exactly the ones the transport raises, which are not a closed set the loop can
             # enumerate. The message names the reason and tells the model not to retry
             # unchanged, because a model told only that something failed usually does.
-            return TRANSPORT_FAILURE_TEMPLATE.format(reason=type(exc).__name__)
+            #
+            # `is_error=True` because a call that raised did not produce an answer. Without it
+            # the loop would record a call it never managed to make as having succeeded, which
+            # is the one reading a caller must not be given.
+            return ToolOutcome(
+                text=TRANSPORT_FAILURE_TEMPLATE.format(reason=type(exc).__name__),
+                is_error=True,
+            )
 
 
 def _declared_key(call: ToolCallRequest) -> str | None:

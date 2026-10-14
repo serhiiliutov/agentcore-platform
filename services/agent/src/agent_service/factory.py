@@ -40,7 +40,7 @@ from agent_service.agent.execution import ToolCallFailedError, WriteExecutor
 from agent_service.agent.gate import ApprovalGate
 from agent_service.agent.handler import InvocationHandlerFactory, as_pending_approval
 from agent_service.agent.inflight import InflightRegistry
-from agent_service.agent.loop import LoopLimits
+from agent_service.agent.loop import LoopLimits, ToolOutcome
 from agent_service.api.app import InvocationHandler, create_app
 from agent_service.api.approval_routes import DecisionConflictError, DecisionHandler
 from agent_service.api.cancel_routes import CancelHandler, CancelResult
@@ -52,7 +52,7 @@ from agent_service.db.repositories.approvals import (
     ApprovalRepository,
     ApprovalTransitionError,
 )
-from agent_service.mcp.client import TicketingMcpClient
+from agent_service.mcp.client import TicketingMcpClient, ToolCallResult
 from agent_service.providers.base import ModelProvider, build_provider
 from agent_service.tools.registry import ToolRegistry
 
@@ -104,25 +104,50 @@ class McpToolExecutor:
     """The loop's ``ToolExecutor``, backed by the ticketing MCP client.
 
     An adapter rather than making the client implement the protocol: the client's ``call`` returns
-    a structured result and takes an optional timeout, and the loop wants one string. That
+    a structured result and takes an optional timeout, and the loop wants a `ToolOutcome`. That
     translation belongs here, at the seam, and not in either of the two things being joined.
 
-    ``as_model_text`` is what the model sees. The structured form is kept on the result for the
-    trace and for the approval path, so a failure that a user should read as a sentence can still
-    be recorded as data.
+    Both halves of the outcome are carried through, and the second one is the point.
+    ``as_model_text`` is what the model sees, which is the text half. ``is_error`` is what the
+    *caller* is told, and dropping it here — which is what this adapter used to do — meant the
+    loop had no way to know a call had failed and so reported every call as executed. A refused
+    search reached the response as a successful one, with the only record of the refusal being
+    the sentence fed to the model.
     """
 
     def __init__(self, client: TicketingMcpClient, *, timeout_s: float = TOOL_TIMEOUT_S) -> None:
         self._client = client
         self._timeout_s = timeout_s
 
+    @staticmethod
+    def _replayed(result: ToolCallResult) -> bool:
+        """Whether the backend answered "already done" rather than doing it again.
+
+        Read from the structured payload, never from the sentence beside it. The write path used
+        to search the text for the words "replayed" and "recovered", which works right up until
+        the server phrases the same fact differently — and it does: the message for a create that
+        the ledger already satisfied is "Ticket TCK-1025 already existed for this request; nothing
+        was created", which contains neither word. The flag then reads false and the response
+        claims a fresh ticket was created while the sentence next to it says otherwise.
+
+        Both keys are checked because either is the same fact to a caller: a write answered from
+        the ledger and a write confirmed by reading the API back are both "the backend did not
+        create a second one".
+        """
+        for source in (result.data, result.structured or {}):
+            if source.get("replayed") or source.get("recovered"):
+                return True
+        return False
+
     async def call(
         self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
-    ) -> str:
-        """Call a tool and render the outcome as text, failures included.
+    ) -> ToolOutcome:
+        """Call a tool and return its result, failures included as text.
 
         What the loop needs: a model must be shown what went wrong, so an error is a sentence in
-        the transcript rather than an exception that aborts the turn.
+        the transcript rather than an exception that aborts the turn — and the same result carries
+        ``is_error``, so the loop can tell the *caller* that the call failed without reading that
+        sentence for a marker it does not own.
 
         ``timeout_s`` is the slice the *turn* has left, and it wins over the ceiling this adapter
         was built with when it is smaller. The construction-time ceiling bounds one call in
@@ -135,9 +160,13 @@ class McpToolExecutor:
         """
         effective = self._timeout_s if timeout_s is None else min(timeout_s, self._timeout_s)
         result = await self._client.call(name, arguments, timeout_s=effective)
-        return result.as_model_text()
+        return ToolOutcome(
+            text=result.as_model_text(),
+            is_error=result.is_error,
+            replayed=self._replayed(result),
+        )
 
-    async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:
+    async def call_checked(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
         """Call a tool and raise if it reported a failure.
 
         What the writer needs, and the split exists because one result has two readers with
@@ -153,7 +182,11 @@ class McpToolExecutor:
         result = await self._client.call(name, arguments, timeout_s=self._timeout_s)
         if result.is_error:
             raise ToolCallFailedError(result.message)
-        return result.as_model_text()
+        return ToolOutcome(
+            text=result.as_model_text(),
+            is_error=False,
+            replayed=self._replayed(result),
+        )
 
 
 def _sqlite_path(database_url: str) -> Path | None:
@@ -240,6 +273,16 @@ def build_invocation_handler(
             # The same registry the cancel route reads, so a run this starts is one the endpoint
             # can find. Two registries would mean a cancel that always reports nothing running.
             runs=runs,
+            # The turn budget comes from the setting that names it. Until now it did not: this
+            # call omitted it, so `AGENT_REQUEST_DEADLINE_S` was a documented knob that changed
+            # nothing while every turn used the 90-second default. Found by the eval that needed
+            # to drive a deadline, and worth stating plainly because a setting that silently does
+            # nothing is worse than an absent one — an operator tuning it would conclude the
+            # timeout logic was broken.
+            turn_budget_s=settings.agent_request_deadline_s,
+            # How long a cross-session fact stays current, passed rather than defaulted here for
+            # the same reason: the setting exists, so the service is the thing that decides.
+            fact_ttl_days=settings.agent_memory_fact_ttl_days,
         )
         with sessions() as session:
             response = await factory(request, session)

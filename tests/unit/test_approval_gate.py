@@ -25,7 +25,7 @@ from sqlalchemy.pool import StaticPool
 
 import agent_service.db.models  # noqa: F401 - registers every table on Base.metadata
 from agent_service.agent.execution import ToolCallFailedError, WriteExecutor
-from agent_service.agent.loop import AgentLoop, LoopLimits
+from agent_service.agent.loop import AgentLoop, LoopLimits, ToolOutcome
 from agent_service.db.base import Base, create_session_factory, register_sqlite_pragmas
 from agent_service.db.models.approval import ApprovalState
 from agent_service.db.models.conversation import ChatSession
@@ -81,10 +81,13 @@ class SpyExecutor:
         #: When set, ``call_checked`` reports a *completed* call that the backend refused —
         #: distinct from ``raises``, which models a transport that never delivered the call.
         self.reports_failure = False
+        #: Whether the backend answered "already done". Settable so a test can prove the flag
+        #: reaches the decision rather than being guessed at from the sentence beside it.
+        self.replayed = False
 
     async def call(
         self, name: str, arguments: dict[str, Any], *, timeout_s: float | None = None
-    ) -> str:
+    ) -> ToolOutcome:
         """The loop's variant. ``timeout_s`` is the slice the turn had left, when it had a budget.
 
         Accepted and ignored here: this suite is about the approval gate, not about the clock, and
@@ -93,9 +96,9 @@ class SpyExecutor:
         if self.raises is not None:
             raise self.raises
         self.calls.append((name, arguments))
-        return self.reply
+        return ToolOutcome(text=self.reply, is_error=False, replayed=self.replayed)
 
-    async def call_checked(self, name: str, arguments: dict[str, Any]) -> str:
+    async def call_checked(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
         """The writer's variant: records the call, then raises if the backend refused it.
 
         The two methods exist because one result has two readers. ``call`` renders a failure as
@@ -110,7 +113,7 @@ class SpyExecutor:
         self.calls.append((name, arguments))
         if self.reports_failure:
             raise ToolCallFailedError(self.reply)
-        return self.reply
+        return ToolOutcome(text=self.reply, is_error=False, replayed=self.replayed)
 
     @property
     def names(self) -> list[str]:
@@ -479,10 +482,19 @@ async def test_the_key_is_minted_at_proposal_time(
 async def test_a_replay_is_reported_without_claiming_a_new_ticket(
     session: Session, approvals: ApprovalRepository
 ) -> None:
-    """Stage 4's ledger signal must survive to the report, or a user is told a lie.
+    """The ledger signal must survive to the report, or a user is told a lie.
 
-    The backend answered "already done". The outcome is a success, but the message must not
-    imply a ticket was created by this call.
+    The backend answered "already done", so the outcome is a success whose message must not imply
+    this call created a ticket.
+
+    **The reply deliberately contains neither of the marker words.** This test previously scripted
+    a reply reading "ticket TCK-1 (replayed, previously created)", and passed — because the writer
+    decided ``replayed`` by searching the text for "replayed" and "recovered". That is not how the
+    server words it. Its actual sentence for a create the ledger already satisfied is "Ticket
+    TCK-1025 already existed for this request; nothing was created", which contains neither, and
+    the writer read the flag as false while reporting that sentence to the user: "a fresh ticket
+    was created" next to "nothing was created". Found by the eval suite, which asserts on the
+    decision the caller receives.
     """
     approval = approvals.propose(
         session_id=SESSION_ID,
@@ -492,14 +504,17 @@ async def test_a_replay_is_reported_without_claiming_a_new_ticket(
         client_request_id="key-1",
     )
     approvals.decide(approval.id, user_id=USER_ID, approved=True)
-    replaying = SpyExecutor(reply="ticket TCK-1 (replayed, previously created)")
+    replaying = SpyExecutor(
+        reply="Ticket TCK-1025 already existed for this request; nothing was created."
+    )
+    replaying.replayed = True
 
     outcome = await WriteExecutor(executor=replaying, approvals=approvals).execute(
         approval.id, user_id=USER_ID
     )
 
     assert outcome.succeeded
-    assert outcome.replayed
+    assert outcome.replayed, "the flag must come from the backend, not from the wording"
     assert "no second ticket was created" in outcome.detail
 
 

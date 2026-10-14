@@ -13,6 +13,8 @@ prove that a key cannot ride along in a trace.
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -29,7 +31,14 @@ from agent_service.providers import (
     build_provider,
 )
 from agent_service.providers.replay import RecordingExhaustedError, ReplayProvider
-from agent_service.providers.scripted import CREATE_PHRASES, DEFAULT_RULES, ScriptedProvider
+from agent_service.providers.scripted import (
+    CREATE_PHRASES,
+    DEFAULT_RULES,
+    SLOW_TURN_DELAY_S,
+    SLOW_TURN_PHRASE,
+    Rule,
+    ScriptedProvider,
+)
 
 #: A valid SQLAlchemy URL; nothing here opens a database, but Settings validates the scheme.
 _TEST_DATABASE_URL = "sqlite+pysqlite:///:memory:"
@@ -184,6 +193,91 @@ async def test_a_rule_naming_an_unavailable_tool_falls_through() -> None:
 def test_the_default_program_ends_with_a_terminating_rule() -> None:
     """Pinned because the last rule is the loop's only guaranteed exit under a script."""
     assert DEFAULT_RULES[-1].name == "answer_after_tools"
+
+
+# --- scripted: the one rule that is about how long it takes -------------------
+
+
+def test_the_slow_rule_is_first_in_the_program() -> None:
+    """Order is the decision procedure, and this rule is first for a reason.
+
+    It matches a prompt that asked to be slow. Every other rule would answer that prompt before
+    the delay could happen, so a later position would make the eval's deadline case end as a plain
+    answer — passing while measuring nothing about the budget.
+    """
+    assert DEFAULT_RULES[0].name == "slow_turn"
+    assert DEFAULT_RULES[0].delay_s == SLOW_TURN_DELAY_S
+
+
+def test_the_slow_rule_matches_the_phrase_the_eval_case_uses() -> None:
+    """The phrase is a constant shared with the case file, so the two cannot drift apart.
+
+    If they did, the case would take a normal-speed turn, meet no deadline, and fail with a
+    message about the wrong thing entirely.
+    """
+    provider = ScriptedProvider(rules=(Rule("slow_turn", DEFAULT_RULES[0].matches, _plain_turn),))
+
+    assert not provider.rules[0].matches(_user("find tickets about the printer"))
+    assert provider.rules[0].matches(_user(f"find the printer, and {SLOW_TURN_PHRASE} allows"))
+
+
+def test_the_slow_turn_still_does_the_work() -> None:
+    """It searches after waiting, rather than idling.
+
+    A turn that was cut short while doing nothing would say nothing about whether the budget
+    bounds a call. Called on the rule directly so the test does not pay the whole two seconds.
+    """
+    turn = DEFAULT_RULES[0].emit(_user(f"find tickets about the printer, and {SLOW_TURN_PHRASE}"))
+
+    assert turn.tool_calls[0].name == "search_tickets"
+    assert turn.tool_calls[0].arguments["q"] == "printer"
+
+
+def _plain_turn(_messages: Sequence[Message]) -> AssistantTurn:
+    return AssistantTurn(text="ok", stop_reason="end_turn")
+
+
+async def test_a_rule_delay_is_honoured_and_absent_by_default() -> None:
+    """The mechanism the deadline case rests on, measured at both ends.
+
+    Measured rather than argued: a delayed rule must take its delay, and an ordinary one must not
+    take anything — a provider that slept on every call would slow the whole suite until somebody
+    deleted the timeout case, which is exactly how a coverage claim quietly becomes false.
+    """
+    slow = ScriptedProvider(rules=(Rule("slow", _matches_always, _plain_turn, delay_s=0.2),))
+    quick = ScriptedProvider(rules=(Rule("quick", _matches_always, _plain_turn),))
+
+    started = time.monotonic()
+    await slow.chat(_user("anything"))
+    delayed = time.monotonic() - started
+
+    started = time.monotonic()
+    await quick.chat(_user("anything"))
+    immediate = time.monotonic() - started
+
+    assert delayed >= 0.2, "a rule with a delay must take it"
+    assert immediate < 0.2, "a rule without one must not"
+
+
+def _matches_always(_messages: Sequence[Message]) -> bool:
+    return True
+
+
+async def test_a_delay_is_not_repeated_once_a_tool_has_run() -> None:
+    """The slow rule is guarded like the others, so a second model turn does not wait again.
+
+    Without the guard the delay would apply to every turn that mentioned the phrase, including
+    the one reporting the result — which would double the cost of the case and make the deadline
+    arrive at a different moment than anyone expects.
+    """
+    call = ToolCallRequest(id="c1", name="search_tickets", arguments={"q": "printer"})
+    messages = [
+        Message.user(f"find tickets about the printer, and {SLOW_TURN_PHRASE}"),
+        Message.assistant("searching", [call]),
+        Message.tool_result(call, "3 of 3 found"),
+    ]
+
+    assert not DEFAULT_RULES[0].matches(messages)
 
 
 # --- replay -------------------------------------------------------------------
