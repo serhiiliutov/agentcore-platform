@@ -1,6 +1,6 @@
 # Eval results
 
-**All 22 case(s) passed** in 46.8s.
+**All 22 case(s) passed** in 40.9s.
 
 | Case | Family | Result | Checks |
 | --- | --- | --- | --- |

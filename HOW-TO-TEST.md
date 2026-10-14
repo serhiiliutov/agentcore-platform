@@ -16,7 +16,7 @@ prose is canned (*"Done. I used 1 tool call(s) to answer."*) and it will not rea
 no rule covers. **That is the provider, not the architecture:** the agent is built against a
 provider interface with six implementations, and pointing it at a real model is one environment
 variable and a container recreate — `AGENT_MODEL_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` set,
-see §6 and README section c. The page's header says which provider is answering
+as README section c sets out. The page's header says which provider is answering
 (`model: scripted - deterministic, no key needed`), so the two are never confused, and hovering it
 says how to switch.
 
@@ -163,7 +163,7 @@ sessions. Every row below was run to check it, with the default provider.
 | Send | What you should see |
 |---|---|
 | `I'm Priya Raman on the Platform team` | Answered in general terms — the fact is stored silently. |
-| click **new session** (or change the session id), then send `what do you know about me?` | **Here is what I have on file:** followed by `- team: Platform` and `- requester_name: Priya Raman`. This is cross-session memory for the same `user_id`. |
+| click **New session** (or change the session id), then send `what do you know about me?` | **Here is what I have on file:** followed by `- team: Platform` and `- requester_name: Priya Raman`. This is cross-session memory for the same `user_id`. |
 | change **your name** at the top left to something else, then ask `what do you know about me?` | *"I do not have anything remembered about you yet."* — memory is per user and one user never sees another's. |
 
 ### 3.5 A turn that runs out of time (optional)
@@ -333,7 +333,7 @@ These need Python 3.12 and `uv`, not Docker:
 
 ```powershell
 uv sync --all-groups                                                    # once
-uv run python -m devtasks test-unit                                     # 446 tests, ~10s, no stack
+uv run python -m devtasks test-unit                                     # 450 tests, ~10s, no stack
 uv run python -m devtasks eval                                          # 22 cases, starts its own stack, ~45s
 uv run python -m devtasks test-integration                              # 4 tests, needs the stack from §1
 ```

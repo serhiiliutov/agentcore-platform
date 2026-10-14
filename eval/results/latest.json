@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "duration_s": 46.75,
+  "duration_s": 40.89,
   "passed": 22,
   "failed": 0,
   "cases": [
@@ -79,7 +79,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-8378fec16dfa4e76b2997f09c8dc9d62",
+            "session_id": "sess-7c7d52520e624439b0926496e1256bb5",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -157,13 +157,13 @@
                 },
                 "outcome": "executed",
                 "status": "executed",
-                "duration_ms": 16,
+                "duration_ms": 15,
                 "is_error": false,
                 "summary": "Ticket TCK-1002: Cannot reset password via self-service portal [in_progress] with 1 comment(s)."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-460f5fec240a4c1e8d1caef5b5757100",
+            "session_id": "sess-bcc76cc543594ea1876df4b758eb47de",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -237,7 +237,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 3dd88acd-ad32-450d-a36d-73c73fbc2f13, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval f6bc9c9a-606e-4366-9fc4-9ecca1c712c0, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -259,11 +259,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 3dd88acd-ad32-450d-a36d-73c73fbc2f13"
+                "summary": "awaiting approval f6bc9c9a-606e-4366-9fc4-9ecca1c712c0"
               }
             ],
             "pending_approval": {
-              "approval_id": "3dd88acd-ad32-450d-a36d-73c73fbc2f13",
+              "approval_id": "f6bc9c9a-606e-4366-9fc4-9ecca1c712c0",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -281,9 +281,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:30.051859Z"
+              "expires_at": "2026-10-14T22:45:00.764253Z"
             },
-            "session_id": "sess-0e2089e7793d429a9669395d4d362c67",
+            "session_id": "sess-93096a47485b4364b63c0851fac98925",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -292,7 +292,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "3dd88acd-ad32-450d-a36d-73c73fbc2f13",
+            "approval_id": "f6bc9c9a-606e-4366-9fc4-9ecca1c712c0",
             "action": "create_ticket",
             "state": "executed",
             "outcome": "executed",
@@ -361,7 +361,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 6b8cdc24-b821-4437-bf5f-eceb553264c9, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 7f7eb227-68de-40c9-8723-1a211691c7d8, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -383,11 +383,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 6b8cdc24-b821-4437-bf5f-eceb553264c9"
+                "summary": "awaiting approval 7f7eb227-68de-40c9-8723-1a211691c7d8"
               }
             ],
             "pending_approval": {
-              "approval_id": "6b8cdc24-b821-4437-bf5f-eceb553264c9",
+              "approval_id": "7f7eb227-68de-40c9-8723-1a211691c7d8",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -405,9 +405,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:30.740717Z"
+              "expires_at": "2026-10-14T22:45:01.626075Z"
             },
-            "session_id": "sess-627b1b1477c149f2ab09749f45f5773d",
+            "session_id": "sess-e09ecdaec65e4f07a7741af3c030e119",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -416,7 +416,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "6b8cdc24-b821-4437-bf5f-eceb553264c9",
+            "approval_id": "7f7eb227-68de-40c9-8723-1a211691c7d8",
             "action": "create_ticket",
             "state": "declined",
             "outcome": "declined",
@@ -477,7 +477,7 @@
             "output": "Understood: write a poem about the office plants",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-edc434230c1e40e3baaab1b727b5876d",
+            "session_id": "sess-2e7c2cc903cc41ab92ed4f90f9950003",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -545,13 +545,13 @@
                 },
                 "outcome": "failed",
                 "status": "failed",
-                "duration_ms": 2530,
+                "duration_ms": 2375,
                 "is_error": true,
                 "summary": "ERROR: the ticketing API is rate limiting this client. This was attempted 4 times and has been given up on rather than retried further."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-3a145d3a9fe34fa981d7748d796bec40",
+            "session_id": "sess-406ebe3d493a45768aa272645a380e46",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -601,7 +601,7 @@
             "output": "Understood: hello there",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-3ddef3ba60f44d42b8174f613d59c8fd",
+            "session_id": "sess-d0da4c3a470b41d6a6db0f9c1a666ef8",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -652,7 +652,7 @@
             "output": "Understood: hello, how are you?",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-8a643a46d9fb4c7c9a881710b32fde1f",
+            "session_id": "sess-f1c4bd07d0e8413b9e68135c1dab301e",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -679,7 +679,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-8a643a46d9fb4c7c9a881710b32fde1f",
+            "session_id": "sess-f1c4bd07d0e8413b9e68135c1dab301e",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -757,7 +757,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-1206fb4fa06441ca9cb718c6be275aa2",
+            "session_id": "sess-05207c19adff4194ab10b0575db7c362",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -825,13 +825,13 @@
                 },
                 "outcome": "failed",
                 "status": "failed",
-                "duration_ms": 0,
+                "duration_ms": 15,
                 "is_error": true,
                 "summary": "ERROR: No ticket with that id exists. Check the id before retrying."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-b25826eb8fc341cc9584a2ce6075425d",
+            "session_id": "sess-771ccef47ad444598970a73ced38b04f",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -897,7 +897,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 0009e07e-1a0f-49fa-a832-f783a8b87691, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 9aa2c245-6eb6-4ab7-bff4-047b1797c0e0, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -919,11 +919,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 0009e07e-1a0f-49fa-a832-f783a8b87691"
+                "summary": "awaiting approval 9aa2c245-6eb6-4ab7-bff4-047b1797c0e0"
               }
             ],
             "pending_approval": {
-              "approval_id": "0009e07e-1a0f-49fa-a832-f783a8b87691",
+              "approval_id": "9aa2c245-6eb6-4ab7-bff4-047b1797c0e0",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-invalid-1",
@@ -941,9 +941,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:36.794367Z"
+              "expires_at": "2026-10-14T22:45:07.209615Z"
             },
-            "session_id": "sess-6e4451a72d10411b92f8c58ba389c9d8",
+            "session_id": "sess-836a8101a05f454eb5c8177965748291",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -952,7 +952,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "0009e07e-1a0f-49fa-a832-f783a8b87691",
+            "approval_id": "9aa2c245-6eb6-4ab7-bff4-047b1797c0e0",
             "action": "create_ticket",
             "state": "failed",
             "outcome": "failed",
@@ -1012,7 +1012,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 8b3f8c74-fc56-4427-9158-0007ea4b2d03, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 204071ec-b21f-4a0f-b6eb-01525da71a89, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -1034,11 +1034,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 8b3f8c74-fc56-4427-9158-0007ea4b2d03"
+                "summary": "awaiting approval 204071ec-b21f-4a0f-b6eb-01525da71a89"
               }
             ],
             "pending_approval": {
-              "approval_id": "8b3f8c74-fc56-4427-9158-0007ea4b2d03",
+              "approval_id": "204071ec-b21f-4a0f-b6eb-01525da71a89",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1056,9 +1056,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:37.572006Z"
+              "expires_at": "2026-10-14T22:45:07.854115Z"
             },
-            "session_id": "sess-52747d856edf471d820eabd8ba1d8bfd",
+            "session_id": "sess-a3324dcce0534c71b196bdb5ae3a6b35",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1085,7 +1085,7 @@
               }
             ],
             "pending_approval": {
-              "approval_id": "8b3f8c74-fc56-4427-9158-0007ea4b2d03",
+              "approval_id": "204071ec-b21f-4a0f-b6eb-01525da71a89",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1103,9 +1103,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:37.572006"
+              "expires_at": "2026-10-14T22:45:07.854115"
             },
-            "session_id": "sess-52747d856edf471d820eabd8ba1d8bfd",
+            "session_id": "sess-a3324dcce0534c71b196bdb5ae3a6b35",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -1114,7 +1114,7 @@
           "index": 2,
           "kind": "decision",
           "payload": {
-            "approval_id": "8b3f8c74-fc56-4427-9158-0007ea4b2d03",
+            "approval_id": "204071ec-b21f-4a0f-b6eb-01525da71a89",
             "action": "create_ticket",
             "state": "executed",
             "outcome": "executed",
@@ -1168,7 +1168,7 @@
             "output": "Understood: hi, i'm priya raman.",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-71806d059ac644b384b27833db62bf6e",
+            "session_id": "sess-4f20b39c160444debd01b5dfcb9d9780",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -1180,7 +1180,7 @@
             "output": "Here is what I have on file:\n- requester_name: Priya Raman",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-71806d059ac644b384b27833db62bf6e",
+            "session_id": "sess-4f20b39c160444debd01b5dfcb9d9780",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -1223,7 +1223,7 @@
             "output": "I do not have anything remembered about you yet.",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-9187c80913774f4c8d9d0b279f0fa467",
+            "session_id": "sess-745c9547369f4f7fa12f877755746ccc",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -1275,13 +1275,13 @@
                 },
                 "outcome": "executed",
                 "status": "executed",
-                "duration_ms": 0,
+                "duration_ms": 15,
                 "is_error": false,
                 "summary": "2 of 2 matching ticket(s) on page 1."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-eb20999d5ada4cc9ba77835cc053b81d",
+            "session_id": "sess-287af4836f714a0e9ac6b77ef8707b37",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -1322,7 +1322,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 20d4ae83-1f26-43fe-97f4-522e48faf9d4, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval fdc4884e-6bc7-4423-b240-d6eca40e0035, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -1344,11 +1344,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 20d4ae83-1f26-43fe-97f4-522e48faf9d4"
+                "summary": "awaiting approval fdc4884e-6bc7-4423-b240-d6eca40e0035"
               }
             ],
             "pending_approval": {
-              "approval_id": "20d4ae83-1f26-43fe-97f4-522e48faf9d4",
+              "approval_id": "fdc4884e-6bc7-4423-b240-d6eca40e0035",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1366,9 +1366,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:40.839180Z"
+              "expires_at": "2026-10-14T22:45:10.590394Z"
             },
-            "session_id": "sess-7e90b5c49d45452586fcfff998db67f1",
+            "session_id": "sess-2273a05272764cd3a055d3d2c6990cba",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1377,7 +1377,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "20d4ae83-1f26-43fe-97f4-522e48faf9d4",
+            "approval_id": "fdc4884e-6bc7-4423-b240-d6eca40e0035",
             "action": "create_ticket",
             "state": "failed",
             "outcome": "failed",
@@ -1446,7 +1446,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval f7c36f4d-e1e1-4867-8849-1b76a2e18789, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 7a504f84-4046-4a51-b9a3-2b34e9c67879, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -1468,11 +1468,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval f7c36f4d-e1e1-4867-8849-1b76a2e18789"
+                "summary": "awaiting approval 7a504f84-4046-4a51-b9a3-2b34e9c67879"
               }
             ],
             "pending_approval": {
-              "approval_id": "f7c36f4d-e1e1-4867-8849-1b76a2e18789",
+              "approval_id": "7a504f84-4046-4a51-b9a3-2b34e9c67879",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1490,9 +1490,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T15:46:49.193871Z"
+              "expires_at": "2026-10-14T22:15:18.538242Z"
             },
-            "session_id": "sess-0398ac8dff0c492f84a6ed3d7d297c6d",
+            "session_id": "sess-2ec150c825a54fc1ae9e361ff08accca",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1503,7 +1503,7 @@
           "payload": {
             "outcome": "refused",
             "status": 409,
-            "error": "approval 'f7c36f4d-e1e1-4867-8849-1b76a2e18789' expired before it was decided"
+            "error": "approval '7a504f84-4046-4a51-b9a3-2b34e9c67879' expired before it was decided"
           }
         }
       ]
@@ -1566,7 +1566,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval a8deb610-7652-4f9a-a79a-67838ec289da, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 27563465-be4f-4fc3-93db-a083816f9034, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -1588,11 +1588,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval a8deb610-7652-4f9a-a79a-67838ec289da"
+                "summary": "awaiting approval 27563465-be4f-4fc3-93db-a083816f9034"
               }
             ],
             "pending_approval": {
-              "approval_id": "a8deb610-7652-4f9a-a79a-67838ec289da",
+              "approval_id": "27563465-be4f-4fc3-93db-a083816f9034",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1610,9 +1610,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T16:16:51.438019Z"
+              "expires_at": "2026-10-14T22:45:20.462964Z"
             },
-            "session_id": "sess-9fa7c9d830d84f46aaa826f612ec7a64",
+            "session_id": "sess-4f5d2ecdf392446da418b1ea61002b1e",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1621,7 +1621,7 @@
           "index": 2,
           "kind": "decision",
           "payload": {
-            "approval_id": "a8deb610-7652-4f9a-a79a-67838ec289da",
+            "approval_id": "27563465-be4f-4fc3-93db-a083816f9034",
             "action": "create_ticket",
             "state": "executed",
             "outcome": "executed",
@@ -1667,7 +1667,7 @@
             "output": "I gave up on this turn: the turn exceeded its 0.5s budget after 2.00s; raise AGENT_TURN_BUDGET_S if this is a normal workload",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-f3767c38698e456e88906c6bad318e48",
+            "session_id": "sess-4302a3eae9874cc7a13e0fecf97244e4",
             "stop_reason": "deadline",
             "steps": 1
           }
@@ -1743,7 +1743,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 11c69ea0-dc0a-443c-bc60-25a091a85b7a, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 1fa111d8-a142-4c9d-8398-daf3aefeca8f, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -1765,11 +1765,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 11c69ea0-dc0a-443c-bc60-25a091a85b7a"
+                "summary": "awaiting approval 1fa111d8-a142-4c9d-8398-daf3aefeca8f"
               }
             ],
             "pending_approval": {
-              "approval_id": "11c69ea0-dc0a-443c-bc60-25a091a85b7a",
+              "approval_id": "1fa111d8-a142-4c9d-8398-daf3aefeca8f",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1787,9 +1787,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T15:47:04.052274Z"
+              "expires_at": "2026-10-14T22:15:31.048183Z"
             },
-            "session_id": "sess-37296072c7fd429981f7f7ae84ae5083",
+            "session_id": "sess-b3c10ab3d73445bdba0fb23fc887c732",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1824,7 +1824,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-37296072c7fd429981f7f7ae84ae5083",
+            "session_id": "sess-b3c10ab3d73445bdba0fb23fc887c732",
             "stop_reason": "completed",
             "steps": 0
           }
@@ -1900,7 +1900,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval a4f06d56-a87c-42ae-bdfc-50d70c0e6bbb, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 99ccd723-f327-4ce4-a6f0-ee015f54eb26, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -1922,11 +1922,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval a4f06d56-a87c-42ae-bdfc-50d70c0e6bbb"
+                "summary": "awaiting approval 99ccd723-f327-4ce4-a6f0-ee015f54eb26"
               }
             ],
             "pending_approval": {
-              "approval_id": "a4f06d56-a87c-42ae-bdfc-50d70c0e6bbb",
+              "approval_id": "99ccd723-f327-4ce4-a6f0-ee015f54eb26",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -1944,9 +1944,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T15:47:04.951472Z"
+              "expires_at": "2026-10-14T22:15:31.775717Z"
             },
-            "session_id": "sess-c4b83582474a4fe98362b19c811cc02c",
+            "session_id": "sess-89727ccded6745e3806d016000e769e3",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1981,7 +1981,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-c4b83582474a4fe98362b19c811cc02c",
+            "session_id": "sess-89727ccded6745e3806d016000e769e3",
             "stop_reason": "completed",
             "steps": 0
           }
@@ -2056,7 +2056,7 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval d9ecd0c1-52ab-4e5b-ab50-7cded05b9fdc, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval ae2aa161-9ae7-422d-910e-3baa107ce129, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
@@ -2078,11 +2078,11 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval d9ecd0c1-52ab-4e5b-ab50-7cded05b9fdc"
+                "summary": "awaiting approval ae2aa161-9ae7-422d-910e-3baa107ce129"
               }
             ],
             "pending_approval": {
-              "approval_id": "d9ecd0c1-52ab-4e5b-ab50-7cded05b9fdc",
+              "approval_id": "ae2aa161-9ae7-422d-910e-3baa107ce129",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -2100,9 +2100,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T15:47:05.700225Z"
+              "expires_at": "2026-10-14T22:15:32.480266Z"
             },
-            "session_id": "sess-d3bf09c2bf0c44c2925815aa4d560a1e",
+            "session_id": "sess-3721a1955c0640f394f32fa4dd18f744",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -2123,13 +2123,13 @@
                 },
                 "outcome": "executed",
                 "status": "executed",
-                "duration_ms": 15,
+                "duration_ms": 0,
                 "is_error": false,
                 "summary": "3 of 3 matching ticket(s) on page 1."
               }
             ],
             "pending_approval": {
-              "approval_id": "d9ecd0c1-52ab-4e5b-ab50-7cded05b9fdc",
+              "approval_id": "ae2aa161-9ae7-422d-910e-3baa107ce129",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
@@ -2147,9 +2147,9 @@
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-14T15:47:05.700225"
+              "expires_at": "2026-10-14T22:15:32.480266"
             },
-            "session_id": "sess-d3bf09c2bf0c44c2925815aa4d560a1e",
+            "session_id": "sess-3721a1955c0640f394f32fa4dd18f744",
             "stop_reason": "completed",
             "steps": 2
           }

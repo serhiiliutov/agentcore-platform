@@ -5,7 +5,7 @@ waits for a human to approve before anything is written. Built for the AgentCore
 assignment (option 1).
 
 > **Status: complete.** All sixteen stages are implemented and verified, and the whole thing was then
-> re-verified from a **fresh clone** of the committed tree: 446 unit tests pass, all 22 eval cases
+> re-verified from a **fresh clone** of the committed tree: 450 unit tests pass, all 22 eval cases
 > pass, one command brings three services to healthy, and the recorded run regenerates — the commands
 > and their output are in [`eval/results/latest.md`](eval/results/latest.md). Stage 17 then closed the
 > four gaps that re-reading the assignment against the *running* system turned up — including the
@@ -89,7 +89,7 @@ For the development loop:
 uv sync --all-groups     # one environment for the whole workspace
 make help                # every command, with an example
 make doctor              # what is installed, what is configured, what is answering
-make test-unit           # 446 tests, no stack and no credentials needed
+make test-unit           # 450 tests, no stack and no credentials needed
 make eval                # starts its own stack and runs the 22 cases (exit 1 on any failure)
 ```
 
@@ -124,7 +124,7 @@ front-end build. `make doctor` prints what is installed, what is configured and 
 **Test it.** Three levels, none of which needs a key:
 
 ```powershell
-uv run python -m devtasks test-unit         # 446 tests in ~7s: no stack, no credentials
+uv run python -m devtasks test-unit         # 450 tests in ~7s: no stack, no credentials
 uv run python -m devtasks eval              # 22 cases, its own stack, exit 1 on any failure
 uv run python -m devtasks test-integration  # the 4 tests that need the stack from the line above
 ```
@@ -436,7 +436,7 @@ same commit produces the same table. The committed transcripts are
 [`eval/results/latest.md`](eval/results/latest.md) (the report) and
 [`docs/media/eval-run.txt`](docs/media/eval-run.txt) (the console run).
 
-### The latest result — 22 of 22 passed in 46.8s
+### The latest result — 22 of 22 passed
 
 | Family | Cases | What it proves |
 |---|---|---|
@@ -602,10 +602,10 @@ Four further decisions that did not need an ADR but carry weight:
 
 **Followed, and enforced by a command:**
 
-- **mypy in strict mode** across the services, the tests and the dev tooling — 104 files, no `any` in
+- **mypy in strict mode** across the services, the tests and the dev tooling — 105 files, no `any` in
   signatures, and no `# type: ignore` that is not explained.
 - **ruff** for lint and formatting, with the ruleset pinned in `pyproject.toml`.
-- **446 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
+- **450 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
   own tests), and integration tests against the composed stack for the rest.
 - **Small modules with docstrings that explain *why*.** The docstrings are the design document at the
   code level: why spans are not rows, why a cancel does not interrupt a write, why an open span
@@ -648,7 +648,7 @@ AI-assisted engineering are specific and predictable:
 
 | Failure mode | The control that catches it here |
 |---|---|
-| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 446 tests, and integration tests against the composed stack, all green before any commit |
+| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 450 tests, and integration tests against the composed stack, all green before any commit |
 | Confident documentation that describes what was intended rather than what exists | every number in the docs is copied from real output; docs are written *after* the thing and against the running system. This caught six architecture documents that were linked and never written |
 | A feature that works and is unreachable from the running system | each stage's definition of done is exercised through the real surface — over HTTP, in a container, with a browser. This caught the web page (stage 11) and the CI compose file (stage 14) both existing and being unreachable |
 | Scope drifting toward what is easy to generate | a plan of record written first, one piece of work at a time, each with what it would produce and how it would be checked |

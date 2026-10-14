@@ -95,7 +95,7 @@ _DETERMINISTIC_NOTE = (
     "this repository, which is what makes the eval suite deterministic and free to run on every "
     "commit. To have a model choose the tools and answer, set AGENT_MODEL_PROVIDER to anthropic, "
     "openai, openai_compatible or bedrock with the matching credential set, then recreate the "
-    "agent container. See README section c and HOW-TO-TEST.md section 6."
+    "agent container. See README section c, and the note at the top of HOW-TO-TEST.md."
 )
 
 _LIVE_NOTE = (
