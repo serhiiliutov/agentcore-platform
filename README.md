@@ -4,11 +4,13 @@ An agent that answers IT-helpdesk questions and, when a change is actually requi
 waits for a human to approve before anything is written. Built for the AgentCore Platform Engineer
 assignment (option 1).
 
-> **Status: stages 0–15 of 16 complete.** The scaffolding, the MCP server, the agent service, the
-> approval gate, memory, tracing, the page, failure handling and cancellation, the eval suite, the
-> containers and CI, and the documentation set are all implemented and verified. Stage 16 is the
-> clean-slate verification and tag. Every claim in this README is either a command whose output is
-> quoted verbatim or a pointer to the file that contains it; anything not verified says so.
+> **Status: complete and tagged `v1.0.0`.** All sixteen stages are implemented and verified, and the
+> whole thing was then re-verified from a **fresh clone** of the committed tree: 376 unit tests pass,
+> all 19 eval cases pass, one command brings three services to healthy, and the recorded run
+> regenerates — the commands and their output are in
+> [`docs/plan/stage-16.md`](docs/plan/stage-16.md). Every claim in this README is either a command
+> whose output is quoted verbatim or a pointer to the file that contains it; anything not verified
+> says so.
 
 **The short version.** Three processes: a mock ticketing API that fails on demand, an MCP server that
 is the only component holding a ticketing credential, and an agent that runs a model loop against it.
