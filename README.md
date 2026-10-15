@@ -132,15 +132,20 @@ afterwards and reopening the chat returns to `openai`, which is the cost of havi
 front end at all.
 
 Pointing the **agent** at OpenAI without the chat — for a `curl` session, or to make the agent's own
-default a model — is two environment variables and a container recreate:
+default a model — means changing two lines that already exist in `.env`, then recreating the container:
 
 ```bash
-# in .env, or exported in the shell
-OPENAI_API_KEY=sk-...
-AGENT_MODEL_PROVIDER=openai
+# Both lines are already in .env: the provider under "Agent service", the key
+# under "Model provider credentials". Change them; do not add them.
+AGENT_MODEL_PROVIDER=openai       # ships as `scripted`
+OPENAI_API_KEY=sk-...             # ships empty
 
 docker compose up -d agent        # recreate the agent with the new environment
 ```
+
+`AGENT_MODEL_PROVIDER` is the provider the agent *starts* on, and it is in the template already — so this
+is an edit rather than an addition. The same two values exported in the shell work too, and win over the
+file for that one run.
 
 `AGENT_MODEL_ID` overrides the model; it defaults to `gpt-4o`. The choice can also be made at runtime
 from the model control in the chat header, which stores it in the `provider_settings` table so it is
