@@ -23,8 +23,9 @@ import json
 from pathlib import Path
 
 import pytest
+from eval.provider import EvalProvider
 from eval.report import render_markdown, summarise
-from eval.runner import load_cases
+from eval.runner import _skip_reason, load_cases
 from eval.scoring import (
     DECISION,
     INVOCATION,
@@ -167,6 +168,42 @@ def test_a_leaked_string_is_found_anywhere_in_a_payload() -> None:
     )[0]
 
     assert not check.ok, "a key in a tool argument must not pass a no-leak assertion"
+
+
+def test_a_non_empty_answer_passes_whatever_it_says() -> None:
+    """The property that lets one case file serve two providers.
+
+    The case used to assert `output_contains "Understood"`, which is the *deterministic* provider's
+    wording: its fallback reply happens to begin with that word. The first live `openai` run of
+    this suite failed the case while the agent behaved correctly — it declined a poem request in
+    its own words — so the assertion was measuring the provider rather than the requirement. What
+    the case means is "it answered rather than staying silent", and both halves of that are below:
+    any wording passes, and an answer of spaces does not.
+    """
+    assertion = {"type": "output_is_not_empty"}
+
+    answered = Observation(
+        steps=(
+            Step(
+                index=0,
+                kind=INVOCATION,
+                payload={"output": "I can't help with that, I only handle tickets."},
+            ),
+        ),
+        tickets_before=0,
+        tickets_after=0,
+    )
+    assert evaluate({"assertions": [assertion]}, answered)[0].ok
+
+    silent = Observation(
+        steps=(Step(index=0, kind=INVOCATION, payload={"output": "   "}),),
+        tickets_before=0,
+        tickets_after=0,
+    )
+    check = evaluate({"assertions": [assertion]}, silent)[0]
+
+    assert not check.ok, "a response nobody could read as an answer must fail"
+    assert "answer with something" in check.detail
 
 
 def test_an_unknown_assertion_raises_rather_than_passing() -> None:
@@ -351,6 +388,60 @@ def test_an_override_value_that_is_not_a_string_is_rejected(tmp_path: Path) -> N
     path = _write(tmp_path, {"cases": [case]})
 
     with pytest.raises(TypeError, match="not a string"):
+        load_cases(path)
+
+
+def test_a_case_that_needs_a_rule_driven_provider_is_skipped_for_a_live_one() -> None:
+    """The mechanism that keeps a live run honest.
+
+    One case asks the agent to send a priority the backend's schema forbids, which is how the
+    *refusal* path stays reachable — and only a provider answering from rules can be told to do
+    that. The first live run reported that case as a failure while the model was behaving well, so
+    it now declares itself, and this asserts the declaration is honoured in both directions.
+    """
+    case = {"id": "needs_rules", "deterministic_only": True}
+
+    assert _skip_reason(case, EvalProvider(name="openai")) is not None
+    assert _skip_reason(case, EvalProvider(name="scripted")) is None
+    assert _skip_reason({"id": "any"}, EvalProvider(name="openai")) is None
+
+
+def test_a_skipped_case_is_neither_a_pass_nor_a_failure() -> None:
+    """The distinction the report's whole value rests on.
+
+    A skip reported as a pass is a lie about coverage; reported as a failure it makes every live
+    run red for a case nobody chose to run. The exit code and the headline both read `failed`, so
+    this is the property that keeps a skipped case out of both.
+    """
+    result = CaseResult(case_id="needs_rules", family="f", why="w", skipped="needs rules")
+
+    assert not result.passed
+    assert not result.failed
+    assert summarise([result]), "a run whose only case was skipped has nothing red in it"
+
+
+def test_a_real_case_file_marks_its_deterministic_only_case() -> None:
+    """Checked over the real file, so the mechanism cannot quietly stop being used.
+
+    Without this, deleting the flag would leave every test above passing and the live run failing
+    again — the guard would have become a description of a mechanism nobody uses.
+    """
+    marked = [case for case in load_cases(CASES) if case.get("deterministic_only")]
+
+    assert [case["id"] for case in marked] == ["invalid_enum_handled"]
+
+
+def test_a_non_boolean_deterministic_only_is_rejected(tmp_path: Path) -> None:
+    """A provider *name* here would skip the case for every provider, silently."""
+    case = {
+        "id": "wrong-type",
+        "user_id": "u",
+        "steps": [{"invoke": "hi"}],
+        "deterministic_only": "scripted",
+    }
+    path = _write(tmp_path, {"cases": [case]})
+
+    with pytest.raises(TypeError, match="non-boolean"):
         load_cases(path)
 
 

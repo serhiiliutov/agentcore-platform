@@ -1,8 +1,13 @@
 {
   "version": 1,
-  "duration_s": 40.26,
+  "duration_s": 44.26,
+  "provider": {
+    "name": "scripted",
+    "live": false
+  },
   "passed": 22,
   "failed": 0,
+  "skipped": 0,
   "cases": [
     {
       "id": "right_tool_search",
@@ -51,6 +56,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 24,
         "before_decision": null,
@@ -73,13 +79,13 @@
                 },
                 "outcome": "executed",
                 "status": "executed",
-                "duration_ms": 0,
+                "duration_ms": 14,
                 "is_error": false,
                 "summary": "1 of 1 matching ticket(s) on page 1."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-9977fc9b1e554aaabe80a00eab0aaef1",
+            "session_id": "sess-fda422af89704feb9eec02e4b1fc5637",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -135,6 +141,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 24,
         "before_decision": null,
@@ -163,7 +170,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-e30f554a5892449ba143fe1f011f380a",
+            "session_id": "sess-a6aa7b819d03422bba703a90e959bdb5",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -227,6 +234,7 @@
           "detail": "expected the backend to gain 1 ticket(s), it gained 1"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 24,
         "before_decision": 24,
@@ -237,20 +245,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 05456993-fc20-40f8-8db0-d0c1b0987bdb, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 96a1b604-c40f-46a7-9be9-48635891182e, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -259,15 +267,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 05456993-fc20-40f8-8db0-d0c1b0987bdb"
+                "summary": "awaiting approval 96a1b604-c40f-46a7-9be9-48635891182e"
               }
             ],
             "pending_approval": {
-              "approval_id": "05456993-fc20-40f8-8db0-d0c1b0987bdb",
+              "approval_id": "96a1b604-c40f-46a7-9be9-48635891182e",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the broken printer",
+                "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -275,15 +283,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the broken printer",
+                "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:27.952620Z"
+              "expires_at": "2026-10-15T14:41:24.483709Z"
             },
-            "session_id": "sess-bfebf0b6f042462f957b6ee3e1c70d10",
+            "session_id": "sess-581292d17c7140089bf7cf2942c39ec1",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -292,11 +300,11 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "05456993-fc20-40f8-8db0-d0c1b0987bdb",
+            "approval_id": "96a1b604-c40f-46a7-9be9-48635891182e",
             "action": "create_ticket",
             "state": "executed",
             "outcome": "executed",
-            "detail": "Created ticket TCK-1025.\n\n{\n  \"id\": \"TCK-1025\",\n  \"title\": \"for the broken printer\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T11:35:28Z\",\n  \"updated_at\": \"2026-10-15T11:35:28Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"scripted-create-1\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "detail": "Created ticket TCK-1025.\n\n{\n  \"id\": \"TCK-1025\",\n  \"title\": \"for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:11:24Z\",\n  \"updated_at\": \"2026-10-15T14:11:24Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"scripted-create-1\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
             "replayed": false
           }
         }
@@ -351,6 +359,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": 25,
@@ -361,20 +370,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval c3ac95f2-951e-4978-9493-087143f886be, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 55e6e710-ac62-46ac-b4b4-3faaec0350cd, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -383,15 +392,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval c3ac95f2-951e-4978-9493-087143f886be"
+                "summary": "awaiting approval 55e6e710-ac62-46ac-b4b4-3faaec0350cd"
               }
             ],
             "pending_approval": {
-              "approval_id": "c3ac95f2-951e-4978-9493-087143f886be",
+              "approval_id": "55e6e710-ac62-46ac-b4b4-3faaec0350cd",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -399,15 +408,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:28.788535Z"
+              "expires_at": "2026-10-15T14:41:25.329965Z"
             },
-            "session_id": "sess-d005413bf87e49caa98c0e4a1c0d9a80",
+            "session_id": "sess-fb0612f14a9c43db9d469aa642b7c3f8",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -416,7 +425,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "c3ac95f2-951e-4978-9493-087143f886be",
+            "approval_id": "55e6e710-ac62-46ac-b4b4-3faaec0350cd",
             "action": "create_ticket",
             "state": "declined",
             "outcome": "declined",
@@ -449,11 +458,10 @@
         },
         {
           "assertion": {
-            "type": "output_contains",
-            "value": "Understood"
+            "type": "output_is_not_empty"
           },
           "ok": true,
-          "detail": "expected an output containing \"Understood\", saw ['Understood: write a poem about the office plants']"
+          "detail": "expected every step to answer with something, saw ['Understood: write a poem about the office plants']"
         },
         {
           "assertion": {
@@ -464,6 +472,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": null,
@@ -477,7 +486,7 @@
             "output": "Understood: write a poem about the office plants",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-b4a652faa3d84a309eeb9b3afb13f713",
+            "session_id": "sess-dce16de5d7da40fb87f17a94cddc5a80",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -523,6 +532,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": null,
@@ -545,13 +555,13 @@
                 },
                 "outcome": "failed",
                 "status": "failed",
-                "duration_ms": 2608,
+                "duration_ms": 2327,
                 "is_error": true,
                 "summary": "the ticketing API is rate limiting this client. This was attempted 4 times and has been given up on rather than retried further."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-a4ea9a4c17054e21a800bd9abbc69201",
+            "session_id": "sess-1b8bed95bef04bdbb63a9834265cb78d",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -581,6 +591,13 @@
         },
         {
           "assertion": {
+            "type": "output_is_not_empty"
+          },
+          "ok": true,
+          "detail": "expected every step to answer with something, saw ['Understood: hello there']"
+        },
+        {
+          "assertion": {
             "type": "tickets_delta",
             "value": 0
           },
@@ -588,6 +605,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": null,
@@ -601,7 +619,7 @@
             "output": "Understood: hello there",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-066ab3e202d641d3b2939dbdf1d3ea3e",
+            "session_id": "sess-efdd2bb967ee4de3bd5ad3fee0645a8e",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -639,6 +657,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": null,
@@ -652,7 +671,7 @@
             "output": "Understood: hello, how are you?",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-b14731c3ad664a43925dfe1100339130",
+            "session_id": "sess-22cbba20fb7d47f18c785b5120f9cb3e",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -679,7 +698,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-b14731c3ad664a43925dfe1100339130",
+            "session_id": "sess-22cbba20fb7d47f18c785b5120f9cb3e",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -727,6 +746,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": null,
@@ -751,13 +771,13 @@
                 },
                 "outcome": "executed",
                 "status": "executed",
-                "duration_ms": 0,
+                "duration_ms": 14,
                 "is_error": false,
                 "summary": "0 of 0 matching ticket(s) on page 2."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-dc2a9566281647e894a40a0f316d73db",
+            "session_id": "sess-e2f0ed8a80f84239bbfb3e64dd105ee2",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -803,6 +823,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": null,
@@ -825,13 +846,13 @@
                 },
                 "outcome": "failed",
                 "status": "failed",
-                "duration_ms": 16,
+                "duration_ms": 0,
                 "is_error": true,
                 "summary": "No ticket with that id exists. Check the id before retrying."
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-0be37b20717041feba331f5a3d20d3ae",
+            "session_id": "sess-a70030fd4a484996b6d207ab6ca9c92e",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -887,6 +908,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": 25,
@@ -897,20 +919,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 98472d30-aec0-4a5a-a2df-6e2a06f74039, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 24d5ea55-cc27-452e-948c-096a21d22d59, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-invalid-1",
-                  "title": "with an invalid priority for the roof",
+                  "title": "for the roof with an invalid priority. requester: dana holst. category: hardware",
                   "requester": "scripted-user",
                   "priority": "impossible",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-invalid-1",
-                  "title": "with an invalid priority for the roof",
+                  "title": "for the roof with an invalid priority. requester: dana holst. category: hardware",
                   "requester": "scripted-user",
                   "priority": "impossible",
                   "category": "other"
@@ -919,15 +941,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 98472d30-aec0-4a5a-a2df-6e2a06f74039"
+                "summary": "awaiting approval 24d5ea55-cc27-452e-948c-096a21d22d59"
               }
             ],
             "pending_approval": {
-              "approval_id": "98472d30-aec0-4a5a-a2df-6e2a06f74039",
+              "approval_id": "24d5ea55-cc27-452e-948c-096a21d22d59",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-invalid-1",
-                "title": "with an invalid priority for the roof",
+                "title": "for the roof with an invalid priority. requester: dana holst. category: hardware",
                 "requester": "scripted-user",
                 "priority": "impossible",
                 "category": "other"
@@ -935,15 +957,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-invalid-1",
-                "title": "with an invalid priority for the roof",
+                "title": "for the roof with an invalid priority. requester: dana holst. category: hardware",
                 "requester": "scripted-user",
                 "priority": "impossible",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:34.944229Z"
+              "expires_at": "2026-10-15T14:41:30.948465Z"
             },
-            "session_id": "sess-d85a81db714942818db27f31fb72e942",
+            "session_id": "sess-75782f432bf84393aca0933e3b9656ec",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -952,7 +974,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "98472d30-aec0-4a5a-a2df-6e2a06f74039",
+            "approval_id": "24d5ea55-cc27-452e-948c-096a21d22d59",
             "action": "create_ticket",
             "state": "failed",
             "outcome": "failed",
@@ -1002,6 +1024,7 @@
           "detail": "expected the backend to gain 1 ticket(s), it gained 1"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 25,
         "before_decision": 25,
@@ -1012,20 +1035,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 54c01b49-37f9-49d3-87ee-da58c7ed36e1, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 8da31544-2a13-4611-853e-2399a5463149, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1034,15 +1057,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 54c01b49-37f9-49d3-87ee-da58c7ed36e1"
+                "summary": "awaiting approval 8da31544-2a13-4611-853e-2399a5463149"
               }
             ],
             "pending_approval": {
-              "approval_id": "54c01b49-37f9-49d3-87ee-da58c7ed36e1",
+              "approval_id": "8da31544-2a13-4611-853e-2399a5463149",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1050,15 +1073,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:35.731960Z"
+              "expires_at": "2026-10-15T14:41:31.734022Z"
             },
-            "session_id": "sess-fb410eed22c64268ad68da3574751841",
+            "session_id": "sess-a88ba5b0adea4bbb81484032f2f50c84",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1079,17 +1102,17 @@
                 },
                 "outcome": "executed",
                 "status": "executed",
-                "duration_ms": 16,
+                "duration_ms": 0,
                 "is_error": false,
                 "summary": "2 of 2 matching ticket(s) on page 1."
               }
             ],
             "pending_approval": {
-              "approval_id": "54c01b49-37f9-49d3-87ee-da58c7ed36e1",
+              "approval_id": "8da31544-2a13-4611-853e-2399a5463149",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1097,15 +1120,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:35.731960"
+              "expires_at": "2026-10-15T14:41:31.734022"
             },
-            "session_id": "sess-fb410eed22c64268ad68da3574751841",
+            "session_id": "sess-a88ba5b0adea4bbb81484032f2f50c84",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -1114,11 +1137,11 @@
           "index": 2,
           "kind": "decision",
           "payload": {
-            "approval_id": "54c01b49-37f9-49d3-87ee-da58c7ed36e1",
+            "approval_id": "8da31544-2a13-4611-853e-2399a5463149",
             "action": "create_ticket",
             "state": "executed",
             "outcome": "executed",
-            "detail": "Created ticket TCK-1026.\n\n{\n  \"id\": \"TCK-1026\",\n  \"title\": \"for the flickering monitor\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T11:35:36Z\",\n  \"updated_at\": \"2026-10-15T11:35:36Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-2550271a284c403aad08510463c170f7\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "detail": "Created ticket TCK-1026.\n\n{\n  \"id\": \"TCK-1026\",\n  \"title\": \"for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:11:32Z\",\n  \"updated_at\": \"2026-10-15T14:11:32Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-bb13d45edbf24682bdd6f8d27ea271ce\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
             "replayed": false
           }
         }
@@ -1155,6 +1178,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 26,
         "before_decision": null,
@@ -1168,7 +1192,7 @@
             "output": "Understood: hi, i'm priya raman.",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-8a5bfea660804b2ab0e995ec7d619b84",
+            "session_id": "sess-da28f711cd344fbca3dd5cc594fcbc4b",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -1180,7 +1204,7 @@
             "output": "Here is what I have on file:\n- requester_name: Priya Raman",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-8a5bfea660804b2ab0e995ec7d619b84",
+            "session_id": "sess-da28f711cd344fbca3dd5cc594fcbc4b",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -1210,6 +1234,7 @@
           "detail": "expected \"Dana Whitfield\" in no payload, found it in step(s) []"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 26,
         "before_decision": null,
@@ -1223,7 +1248,7 @@
             "output": "I do not have anything remembered about you yet.",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-641d9f6f94b443bcb86af2cd13a45778",
+            "session_id": "sess-aca5aca8b9d64476b4f08625dbd9515b",
             "stop_reason": "completed",
             "steps": 1
           }
@@ -1253,6 +1278,7 @@
           "detail": "expected \"dev-key-123\" in no payload, found it in step(s) []"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 26,
         "before_decision": null,
@@ -1281,7 +1307,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-84fe87aa5cb745518dbfcff25b89b35f",
+            "session_id": "sess-896c4c46e65149b880ca55e31bbd96bd",
             "stop_reason": "completed",
             "steps": 2
           }
@@ -1312,6 +1338,7 @@
           "detail": "expected a pending approval, saw pending=[True]"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 26,
         "before_decision": 26,
@@ -1322,20 +1349,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval c44946a9-bfd8-48e6-87be-e8b0b3d2dcab, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval ebefbeb0-4943-44bf-b262-6c2420f3be87, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the leaking roof",
+                  "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the leaking roof",
+                  "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1344,15 +1371,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval c44946a9-bfd8-48e6-87be-e8b0b3d2dcab"
+                "summary": "awaiting approval ebefbeb0-4943-44bf-b262-6c2420f3be87"
               }
             ],
             "pending_approval": {
-              "approval_id": "c44946a9-bfd8-48e6-87be-e8b0b3d2dcab",
+              "approval_id": "ebefbeb0-4943-44bf-b262-6c2420f3be87",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the leaking roof",
+                "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1360,15 +1387,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the leaking roof",
+                "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:38.529147Z"
+              "expires_at": "2026-10-15T14:41:35.208309Z"
             },
-            "session_id": "sess-8a4ba52b9d3249c588fddcb562277c48",
+            "session_id": "sess-494ee592f3cc4936ad4ec99c576e68fc",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1377,7 +1404,7 @@
           "index": 1,
           "kind": "decision",
           "payload": {
-            "approval_id": "c44946a9-bfd8-48e6-87be-e8b0b3d2dcab",
+            "approval_id": "ebefbeb0-4943-44bf-b262-6c2420f3be87",
             "action": "create_ticket",
             "state": "failed",
             "outcome": "failed",
@@ -1436,6 +1463,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 24,
         "before_decision": 24,
@@ -1446,20 +1474,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 89482f44-3d99-4b00-82be-7a7600ae99f8, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval b0388c71-e7d0-47a7-bb82-1bde30a6f31f, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1468,15 +1496,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 89482f44-3d99-4b00-82be-7a7600ae99f8"
+                "summary": "awaiting approval b0388c71-e7d0-47a7-bb82-1bde30a6f31f"
               }
             ],
             "pending_approval": {
-              "approval_id": "89482f44-3d99-4b00-82be-7a7600ae99f8",
+              "approval_id": "b0388c71-e7d0-47a7-bb82-1bde30a6f31f",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the broken printer",
+                "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1484,15 +1512,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the broken printer",
+                "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T11:35:46.739494Z"
+              "expires_at": "2026-10-15T14:11:45.135035Z"
             },
-            "session_id": "sess-ced8cccc3820420595d34cbf51998315",
+            "session_id": "sess-5ce84f8a32694ecb9725c46a6b5814e3",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1503,7 +1531,7 @@
           "payload": {
             "outcome": "refused",
             "status": 409,
-            "error": "approval '89482f44-3d99-4b00-82be-7a7600ae99f8' expired before it was decided"
+            "error": "approval 'b0388c71-e7d0-47a7-bb82-1bde30a6f31f' expired before it was decided"
           }
         }
       ]
@@ -1556,6 +1584,7 @@
           "detail": "expected the backend to gain 1 ticket(s), it gained 1"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 26,
         "before_decision": 26,
@@ -1566,20 +1595,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 1b99c5de-47b9-470b-bdcb-4e053a4a0516, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 0ba1809c-7707-4dba-a3bf-478e5c6ebfc4, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1588,15 +1617,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval 1b99c5de-47b9-470b-bdcb-4e053a4a0516"
+                "summary": "awaiting approval 0ba1809c-7707-4dba-a3bf-478e5c6ebfc4"
               }
             ],
             "pending_approval": {
-              "approval_id": "1b99c5de-47b9-470b-bdcb-4e053a4a0516",
+              "approval_id": "0ba1809c-7707-4dba-a3bf-478e5c6ebfc4",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1604,15 +1633,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T12:05:48.702344Z"
+              "expires_at": "2026-10-15T14:41:47.236388Z"
             },
-            "session_id": "sess-180dab93d9224d35b74b90920a9bc575",
+            "session_id": "sess-778c2cfc06704b3088152095e171f604",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1621,11 +1650,11 @@
           "index": 2,
           "kind": "decision",
           "payload": {
-            "approval_id": "1b99c5de-47b9-470b-bdcb-4e053a4a0516",
+            "approval_id": "0ba1809c-7707-4dba-a3bf-478e5c6ebfc4",
             "action": "create_ticket",
             "state": "executed",
             "outcome": "executed",
-            "detail": "Created ticket TCK-1027.\n\n{\n  \"id\": \"TCK-1027\",\n  \"title\": \"for the flickering monitor\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T11:35:51Z\",\n  \"updated_at\": \"2026-10-15T11:35:51Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-e2b9e2168c3c40a49a03726fc35dd1c0\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "detail": "Created ticket TCK-1027.\n\n{\n  \"id\": \"TCK-1027\",\n  \"title\": \"for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:11:50Z\",\n  \"updated_at\": \"2026-10-15T14:11:50Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-f2842fadc31f402e830a1b77ed252faf\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
             "replayed": false
           }
         }
@@ -1654,6 +1683,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 24,
         "before_decision": null,
@@ -1664,10 +1694,10 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I gave up on this turn: the turn exceeded its 0.5s budget after 2.00s; raise AGENT_TURN_BUDGET_S if this is a normal workload",
+            "output": "I gave up on this turn: the turn exceeded its 0.5s budget after 2.01s; raise AGENT_TURN_BUDGET_S if this is a normal workload",
             "tool_calls": [],
             "pending_approval": null,
-            "session_id": "sess-96b4adb850c044fe905736e98c5cf625",
+            "session_id": "sess-8fb1e19409184f4f8da7fde04e1b01b8",
             "stop_reason": "deadline",
             "steps": 1
           }
@@ -1733,6 +1763,7 @@
           "detail": "expected the backend to gain 1 ticket(s), it gained 1"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 27,
         "before_decision": null,
@@ -1743,20 +1774,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval d588c089-521a-48d2-bf33-60368f759a63, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval e013b40c-19b1-4183-bc20-89d5ada01777, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1765,15 +1796,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval d588c089-521a-48d2-bf33-60368f759a63"
+                "summary": "awaiting approval e013b40c-19b1-4183-bc20-89d5ada01777"
               }
             ],
             "pending_approval": {
-              "approval_id": "d588c089-521a-48d2-bf33-60368f759a63",
+              "approval_id": "e013b40c-19b1-4183-bc20-89d5ada01777",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the broken printer",
+                "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1781,15 +1812,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the broken printer",
+                "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T11:35:59.907577Z"
+              "expires_at": "2026-10-15T14:11:59.187311Z"
             },
-            "session_id": "sess-04bef826259d402a8694526e3ca0ec9f",
+            "session_id": "sess-4bea1f4ce08c448fa488112d1eada166",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1798,20 +1829,20 @@
           "index": 1,
           "kind": "invocation",
           "payload": {
-            "output": "Done \u2014 I ran create_ticket. Created ticket TCK-1028.\n\n{\n  \"id\": \"TCK-1028\",\n  \"title\": \"for the broken printer\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T11:35:59Z\",\n  \"updated_at\": \"2026-10-15T11:35:59Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-0a49376bf73a4c3c8f66e55bb90e3d8d\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "output": "Done \u2014 I ran create_ticket. Created ticket TCK-1028.\n\n{\n  \"id\": \"TCK-1028\",\n  \"title\": \"for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:11:58Z\",\n  \"updated_at\": \"2026-10-15T14:11:58Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-89477774224c461ca11a10f0f05c63cc\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the broken printer",
+                  "title": "for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1820,11 +1851,11 @@
                 "status": "executed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "Created ticket TCK-1028.\n\n{\n  \"id\": \"TCK-1028\",\n  \"title\": \"for the broken printer\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T11:35:59Z\",\n  \"updated_at\": \"2026-10-15T11:35:59Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-0a49376bf73a4c3c8f66e55bb90e3d8d\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}"
+                "summary": "Created ticket TCK-1028.\n\n{\n  \"id\": \"TCK-1028\",\n  \"title\": \"for the broken printer on the third floor. requester: dana holst. priority: high. category: hardware\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"other\",\n  \"requester\": \"scripted-user\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:11:58Z\",\n  \"updated_at\": \"2026-10-15T14:11:58Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-89477774224c461ca11a10f0f05c63cc\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}"
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-04bef826259d402a8694526e3ca0ec9f",
+            "session_id": "sess-4bea1f4ce08c448fa488112d1eada166",
             "stop_reason": "completed",
             "steps": 0
           }
@@ -1890,6 +1921,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 28,
         "before_decision": null,
@@ -1900,20 +1932,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval a56f20a5-e004-4e7e-9ea9-de8a69391cb8, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 598221ec-d9ce-41f5-bc7f-474da5bf67e9, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1922,15 +1954,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval a56f20a5-e004-4e7e-9ea9-de8a69391cb8"
+                "summary": "awaiting approval 598221ec-d9ce-41f5-bc7f-474da5bf67e9"
               }
             ],
             "pending_approval": {
-              "approval_id": "a56f20a5-e004-4e7e-9ea9-de8a69391cb8",
+              "approval_id": "598221ec-d9ce-41f5-bc7f-474da5bf67e9",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -1938,15 +1970,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the flickering monitor",
+                "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T11:36:00.606774Z"
+              "expires_at": "2026-10-15T14:11:59.922207Z"
             },
-            "session_id": "sess-321f95ab670c45e3b3288089f0f5bb73",
+            "session_id": "sess-1f41149867b14510a45176623d844934",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -1961,14 +1993,14 @@
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the flickering monitor",
+                  "title": "for the flickering monitor in meeting room 2. requester: dana holst. priority: medium. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -1981,7 +2013,7 @@
               }
             ],
             "pending_approval": null,
-            "session_id": "sess-321f95ab670c45e3b3288089f0f5bb73",
+            "session_id": "sess-1f41149867b14510a45176623d844934",
             "stop_reason": "completed",
             "steps": 0
           }
@@ -2046,6 +2078,7 @@
           "detail": "expected the backend to gain 0 ticket(s), it gained 0"
         }
       ],
+      "skipped": null,
       "tickets": {
         "before": 28,
         "before_decision": null,
@@ -2056,20 +2089,20 @@
           "index": 0,
           "kind": "invocation",
           "payload": {
-            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval b2214a62-f1ab-4a63-87af-7e2088faed77, action create_ticket).",
+            "output": "I will open a ticket for that.\n\nThis needs your approval before it runs (approval 2e2a6c17-287e-42c6-848b-f31fbee9fa52, action create_ticket).",
             "tool_calls": [
               {
                 "name": "create_ticket",
                 "arguments": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the leaking roof",
+                  "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
                 },
                 "input": {
                   "client_request_id": "scripted-create-1",
-                  "title": "for the leaking roof",
+                  "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                   "requester": "scripted-user",
                   "priority": "medium",
                   "category": "other"
@@ -2078,15 +2111,15 @@
                 "status": "proposed",
                 "duration_ms": null,
                 "is_error": false,
-                "summary": "awaiting approval b2214a62-f1ab-4a63-87af-7e2088faed77"
+                "summary": "awaiting approval 2e2a6c17-287e-42c6-848b-f31fbee9fa52"
               }
             ],
             "pending_approval": {
-              "approval_id": "b2214a62-f1ab-4a63-87af-7e2088faed77",
+              "approval_id": "2e2a6c17-287e-42c6-848b-f31fbee9fa52",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the leaking roof",
+                "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -2094,15 +2127,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the leaking roof",
+                "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T11:36:01.316916Z"
+              "expires_at": "2026-10-15T14:12:00.652238Z"
             },
-            "session_id": "sess-ed056fab65224e528bdda637c3517ef3",
+            "session_id": "sess-d831e0b720924f75820f03a7dfa70b2e",
             "stop_reason": "awaiting_approval",
             "steps": 1
           }
@@ -2129,11 +2162,11 @@
               }
             ],
             "pending_approval": {
-              "approval_id": "b2214a62-f1ab-4a63-87af-7e2088faed77",
+              "approval_id": "2e2a6c17-287e-42c6-848b-f31fbee9fa52",
               "tool_name": "create_ticket",
               "arguments": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the leaking roof",
+                "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
@@ -2141,15 +2174,15 @@
               "action": "create_ticket",
               "input": {
                 "client_request_id": "scripted-create-1",
-                "title": "for the leaking roof",
+                "title": "for the leaking roof over the server room. requester: priya raman. priority: urgent. category: hardware",
                 "requester": "scripted-user",
                 "priority": "medium",
                 "category": "other"
               },
               "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
-              "expires_at": "2026-10-15T11:36:01.316916"
+              "expires_at": "2026-10-15T14:12:00.652238"
             },
-            "session_id": "sess-ed056fab65224e528bdda637c3517ef3",
+            "session_id": "sess-d831e0b720924f75820f03a7dfa70b2e",
             "stop_reason": "completed",
             "steps": 2
           }

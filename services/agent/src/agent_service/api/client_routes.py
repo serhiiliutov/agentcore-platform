@@ -1,23 +1,27 @@
-"""The routes the page needs that the contract does not already provide.
+"""The routes a *chat client* needs that the Runtime contract does not provide.
 
-Sending a message and answering a proposal are both already in the Runtime contract, so the page
-calls them directly and this module has almost nothing to add. What is here is the handful of things
-the contract has no room for, and each of them has a reason.
+Sending a message and answering a proposal are both already in the contract, so a client calls them
+directly and this module has almost nothing to add. What is here is the handful of things the
+contract has no room for, and each of them has a reason.
 
-**``GET /`` serves the page.** Inline rather than mounted from a directory: the HTML is a Python
-constant, so there is no static directory that can fail to be copied into an image, and no path
-that has to exist before the app can start.
+**There is no page in this service.** The front end is `services/chat/` — a Chainlit app that runs
+on the host and is a client of exactly the same HTTP surface as anything else. It was the other way
+round: this project also served a small hand-written page from `GET /`, and that page was two front
+ends for one API, two places for a transcript to render wrongly, and two things to keep in step with
+every change to the contract. The chat does the job the assignment asks for — it shows each tool
+call as an expandable step and puts the approval buttons *in* the conversation — so the second front
+end was removed rather than maintained. What stayed is the part the chat actually needs, which is
+what this module now is.
 
 **``GET /api/approvals`` lists outstanding proposals for a user.** This route exists because of a
 specific requirement rather than for convenience: *a pending approval must survive a restart of
 the service*. That guarantee is worthless from the front end if the only way to see a proposal is
-to have just created it in the same page — restart the service, reload the page, and an
-approvable write would be invisible. So the listing is fetched on load, from the database, which
-is where the approval was made durable.
+to have just created it — restart the service, reload the chat, and an approvable write would be
+invisible. So the listing is fetched from the database, which is where the approval was made durable.
 
 The listing reuses `PendingApproval`, the same type the invocation response carries, rather than
 defining a second shape for a proposal. Two shapes for one thing is how a field gets added to one
-of them and not the other, and the page would then render a proposal differently depending on
+of them and not the other, and a client would then render a proposal differently depending on
 which endpoint produced it.
 
 **``GET /api/sessions`` and ``GET /api/sessions/{id}/messages`` reopen an earlier conversation.**
@@ -29,24 +33,24 @@ bounded at twenty, and *one* conversation in full. Drawing the picker from the s
 whole conversation to render every row of a list.
 
 **``GET /api/info`` says which model is answering.** Also for a person rather than for a machine:
-the default provider is deterministic, so its replies are canned by design, and without this the
-page gives a reader no way to know that the wording is a rule rather than a model — or that a real
-model is one environment variable away. It reports the provider, the model if one is named, and
-whether a credential is present; it reports no credential itself.
+the default provider is deterministic, so its replies are canned by design, and without this a
+reader has no way to know that the wording is a rule rather than a model — or that a real model is
+one environment variable away. It reports the provider, the model if one is named, and whether a
+credential is present; it reports no credential itself.
 
 **``GET /api/providers`` and ``PUT /api/providers/current`` choose the model.** These exist because
 "the model provider should be swappable through config" is satisfied by an environment variable and
 *felt* by a person as "I have to edit a file and restart". The pair reports what this process could
 build and adopts a choice, and the wiring layer persists it — so a reviewer can point the agent at a
-real model from the page, see the difference in the next reply, and still find that choice selected
+real model from the chat, see the difference in the next reply, and still find that choice selected
 after a restart. `PUT` rather than `POST` because the resource is the current selection and replacing
 it is exactly what happens: there is one, and it is being set, not accumulated.
 
-Neither route accepts a credential. A key reaches the process through the environment only, so the
-page can choose *whose* key is used and never carries one — which is what would otherwise be the
+Neither route accepts a credential. A key reaches the process through the environment only, so a
+client can choose *whose* key is used and never carries one — which is what would otherwise be the
 obvious way to build this and the wrong one.
 
-The handler is injected exactly as the invocation and decision handlers are, so this module can be
+The handlers are injected exactly as the invocation and decision handlers are, so this module can be
 tested without a database and the app still starts without one.
 """
 
@@ -56,11 +60,10 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 
 from fastapi import APIRouter, Path, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from agent_service.providers.registry import is_deterministic
-from agent_service.ui import INDEX_HTML
 
 from .models import PendingApproval
 
@@ -149,11 +152,11 @@ class Transcript(BaseModel):
 
 
 class ServiceInfo(BaseModel):
-    """Which model is answering, for the page's own header.
+    """Which model is answering, for a client's own header.
 
     Added because the default provider is deterministic. A reviewer who does not know that reads
     canned sentences — "Done. I used 1 tool call(s) to answer." — and has no way to tell them from
-    a live model's, so the page says it outright, and says how to change it. That is the same
+    a live model's, so the client says it outright, and says how to change it. That is the same
     answer the README gives, shown where the question is actually asked.
     """
 
@@ -188,7 +191,7 @@ class ProviderStatus(BaseModel):
 
     One shape for both, because they are one fact: which model is answering. `/api/info` reports it
     for the header chip, the picker reports it with the alternatives beside it, and a second model
-    for the same state is how a page ends up showing a provider the agent is not using.
+    for the same state is how a client ends up showing a provider the agent is not using.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -230,8 +233,8 @@ class ProviderSelectionError(RuntimeError):
 
     Raised by the wiring layer for a provider this process cannot build — a missing key, an
     unavailable endpoint — and turned into a 400 rather than a 500 here. The distinction matters to
-    whoever is looking at the page: a refused choice is something they can fix, and a 500 would tell
-    them the service is broken instead.
+    whoever is looking at the client: a refused choice is something they can fix, and a 500 would
+    tell them the service is broken instead.
     """
 
 
@@ -254,24 +257,24 @@ async def _unconfigured_choose(_provider: str, _model_id: str) -> ProviderStatus
 _DETERMINISTIC_NOTE = (
     "No language model is connected: this provider answers from fixed rules in the repository, "
     "which is what makes the eval suite deterministic and free to run on every commit. Pick a "
-    "provider in the model control above, or set AGENT_MODEL_PROVIDER (anthropic, openai, "
+    "provider in the model control, or set AGENT_MODEL_PROVIDER (anthropic, openai, "
     "openai_compatible, bedrock) with the matching credential in the environment. The key always "
-    "comes from the environment; the page chooses which one is used and never carries one."
+    "comes from the environment; the client chooses which one is used and never carries one."
 )
 
 _LIVE_NOTE = (
-    "A model chooses the tools. The provider and model id are chosen in the model control above "
-    "and persist across restarts; AGENT_MODEL_PROVIDER and AGENT_MODEL_ID set the initial value."
+    "A model chooses the tools. The provider and model id are chosen in the model control and "
+    "persist across restarts; AGENT_MODEL_PROVIDER and AGENT_MODEL_ID set the initial value."
 )
 
 
 class ListingNotConfiguredError(RuntimeError):
     """Raised by a default listing because nothing is wired to the database.
 
-    Shared by both listings — approvals and sessions — because the condition is the same one and
-    the caller's response to it is identical: a 501 saying this endpoint exists but the wiring
-    layer has not supplied its reader. Each raises it with its own sentence, so the message still
-    names which listing is missing.
+    Shared by all three listings — approvals, sessions and a transcript — because the condition is
+    the same one and the caller's response to it is identical: a 501 saying this endpoint exists but
+    the wiring layer has not supplied its reader. Each raises it with its own sentence, so the
+    message still names which listing is missing.
     """
 
 
@@ -293,7 +296,7 @@ async def _unconfigured_transcript(_session_id: str, _user_id: str) -> Sequence[
     )
 
 
-def create_ui_router(
+def create_client_router(
     listing: PendingApprovalListing | None = None,
     *,
     describe_providers: DescribeProviders | None = None,
@@ -301,24 +304,23 @@ def create_ui_router(
     list_sessions: SessionListing | None = None,
     read_transcript: TranscriptReader | None = None,
 ) -> APIRouter:
-    """Build the page, listing, conversation and model-selection routes.
+    """Build the listing, conversation and model-selection routes.
 
     All of them are on one router because all of them exist for the same reader, and splitting them
     would mean five things to include in `create_app` for one feature. The provider and conversation
     handlers are optional and keyword-only, so every existing caller — including the contract tests
     that build an app with nothing installed — keeps working unchanged.
+
+    Note what is *not* here: a route serving a page. This service has no HTML in it at all now; the
+    front end is the Chainlit app in `services/chat/`, which reads these endpoints like any other
+    client. The module docstring says why the second front end was removed.
     """
     resolved = listing or _unconfigured_listing
     describe = describe_providers or _unconfigured_describe
     choose = choose_provider or _unconfigured_choose
     sessions = list_sessions or _unconfigured_sessions
     transcript = read_transcript or _unconfigured_transcript
-    router = APIRouter(tags=["ui"])
-
-    @router.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def index() -> HTMLResponse:
-        """The page. Served from a constant — see the module docstring."""
-        return HTMLResponse(INDEX_HTML)
+    router = APIRouter(tags=["client"])
 
     @router.get("/api/approvals", response_model=ApprovalList)
     async def approvals(
@@ -347,7 +349,7 @@ def create_ui_router(
     async def sessions_for_user(
         user_id: str = Query(min_length=1, max_length=200),
     ) -> object:
-        """This user's conversations, newest first — what a front end resumes from.
+        """This user's conversations, newest first — what a client resumes from.
 
         ``user_id`` is required for the same reason `/api/approvals` requires it, and the exposure
         is the same shape one level up: without it this would hand a caller the opening line of every
@@ -375,7 +377,7 @@ def create_ui_router(
 
         Both identifiers are required, and the user id is not merely a filter here. Without it this
         endpoint would serve any conversation to anyone who could guess an id, and a session id is
-        not a secret — the page shows the current one, and it appears in logs. The owner check is
+        not a secret — a client shows the current one, and it appears in logs. The owner check is
         the reader's, deliberately: it is the layer that can scope the query, and putting it in the
         route would leave a second call site able to forget it.
 
@@ -399,11 +401,11 @@ def create_ui_router(
 
         Asked of the provider control when one is installed, and of ``app.state.settings`` when it
         is not. The order matters and used to be the other way round: reading the startup setting
-        would keep reporting the provider the process *began* with after somebody changed it on the
-        page, so the header chip would name a model that was no longer answering — the one thing
+        would keep reporting the provider the process *began* with after somebody changed it in the
+        client, so the header chip would name a model that was no longer answering — the one thing
         this endpoint exists to get right.
 
-        Deliberately not part of the Runtime contract: it exists for a person looking at the page,
+        Deliberately not part of the Runtime contract: it exists for a person reading a chat header,
         and it says nothing about the conversation, the user or any credential beyond *whether* one
         is present for a provider that needs it.
         """
@@ -418,7 +420,7 @@ def create_ui_router(
             )
 
         # No control installed: answer from settings, so an app built without a registry still
-        # renders a page and a chip rather than a 500. This is the path the contract tests take.
+        # serves a chip rather than a 500. This is the path the contract tests take.
         settings: object = getattr(request.app.state, "settings", None)
         provider = str(getattr(settings, "agent_model_provider", "") or "unknown")
         model_id = str(getattr(settings, "agent_model_id", "") or "")
@@ -441,7 +443,7 @@ def create_ui_router(
     async def providers() -> object:
         """Which provider is in force, which others could be, and which models to suggest.
 
-        The listing is what the page draws its picker from, so all three answers are needed at
+        The listing is what a client draws its picker from, so all three answers are needed at
         once: a picker that knew the alternatives but not the current one would guess, and one that
         knew both but offered no model ids would make the operator type an id from memory.
 

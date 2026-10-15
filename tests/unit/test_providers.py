@@ -12,8 +12,8 @@ prove that a key cannot ride along in a trace.
 
 from __future__ import annotations
 
+import asyncio
 import json
-import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -262,32 +262,39 @@ def _plain_turn(_messages: Sequence[Message]) -> AssistantTurn:
     return AssistantTurn(text="ok", stop_reason="end_turn")
 
 
-async def test_a_rule_delay_is_honoured_and_absent_by_default() -> None:
-    """The mechanism the deadline case rests on, measured at both ends.
+async def test_a_rule_delay_is_honoured_and_absent_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mechanism the deadline case rests on, asserted without measuring the clock.
 
-    Measured rather than argued: a delayed rule must take its delay, and an ordinary one must not
-    take anything — a provider that slept on every call would slow the whole suite until somebody
-    deleted the timeout case, which is exactly how a coverage claim quietly becomes false.
+    The instrument changed, and the reason is in this test's own history: it first compared an
+    absolute bound and was relaxed to a relative one after failing on a shared runner, and it then
+    failed again here — the *first* call to `chat` on a busy machine can take longer than any bound
+    derived from a 0.2s delay, while no rule slept at all. Duration measures the host.
 
-    The second assertion is *relative* on purpose. An absolute bound measures the machine: this
-    test was written as ``immediate < 0.2`` and failed on a loaded one — a container build in the
-    next terminal, a shared CI runner — because scheduling alone can exceed the bound while no
-    rule delayed anything. Comparing against the delayed call states the actual claim ("a rule
-    without a delay does not sleep") and stays true when the host is busy.
+    What the case actually claims is "a rule that declares a delay sleeps, and one that does not,
+    does not", which is a statement about calls. So `asyncio.sleep` is replaced with a recorder —
+    which also stops the test spending 0.2s proving a decision it can now read directly, and lets
+    it assert the exact delay rather than merely that some delay happened.
     """
+    slept: list[float] = []
+
+    async def record(seconds: float) -> None:
+        slept.append(seconds)
+
+    # The module object, not the name it is bound to in `scripted`: the provider calls
+    # `asyncio.sleep`, so replacing the attribute on the module is what intercepts it.
+    monkeypatch.setattr(asyncio, "sleep", record)
+
     slow = ScriptedProvider(rules=(Rule("slow", _matches_always, _plain_turn, delay_s=0.2),))
     quick = ScriptedProvider(rules=(Rule("quick", _matches_always, _plain_turn),))
 
-    started = time.monotonic()
     await slow.chat(_user("anything"))
-    delayed = time.monotonic() - started
+    assert slept == [0.2], "a rule with a delay must sleep for exactly its delay"
 
-    started = time.monotonic()
+    slept.clear()
     await quick.chat(_user("anything"))
-    immediate = time.monotonic() - started
-
-    assert delayed >= 0.2, "a rule with a delay must take it"
-    assert immediate < delayed / 4, "a rule without one must not wait"
+    assert slept == [], "a rule with no delay must not sleep at all"
 
 
 def _matches_always(_messages: Sequence[Message]) -> bool:

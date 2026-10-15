@@ -5,11 +5,11 @@ waits for a human to approve before anything is written. Built for the AgentCore
 assignment (option 1).
 
 > **Status: complete.** All sixteen stages are implemented and verified, and the whole thing was then
-> re-verified from a **fresh clone** of the committed tree: 450 unit tests pass, all 22 eval cases
-> pass, one command brings three services to healthy, and the recorded run regenerates — the commands
-> and their output are in [`eval/results/latest.md`](eval/results/latest.md). Stage 17 then closed the
-> four gaps that re-reading the assignment against the *running* system turned up — including the
-> contract's own smoke test, which now builds and runs.
+> re-verified from a **fresh clone** of the committed tree: 450 unit tests passed then and **584** pass
+> now, all 22 eval cases pass, one command brings three services to healthy, and the recorded run
+> regenerates — the commands and their output are in [`eval/results/latest.md`](eval/results/latest.md).
+> Stage 17 then closed the four gaps that re-reading the assignment against the *running* system turned
+> up — including the contract's own smoke test, which now builds and runs.
 > The reasoning for each fix is in the commit message that made it.
 >
 > Two tags, deliberately rather than one moved: **`v1.0.0`** marks the tree stage 16 verified from a
@@ -43,8 +43,8 @@ passes. Then:
 
 | | |
 |---|---|
-| **The page** | http://localhost:8080/ — type a problem, watch the tool calls, approve or decline |
-| Which model answers | shown in the page header; `scripted` by default (deterministic rules, no key), one environment variable away from a live model — section c below |
+| **The front end** | `services/chat/` — `uv run python -m devtasks chat`, then http://localhost:8001: type a problem, open each tool call as a step, approve or decline *in the conversation*. Needs `uv` on the host; the agent serves no page of its own |
+| Which model answers | shown in the chat header; `scripted` by default (deterministic rules, no key), one environment variable away from a live model — section c below |
 | Agent contract | `POST http://localhost:8080/invocations` |
 | Agent health | `GET http://localhost:8080/ping` |
 | Ticketing mock | http://localhost:8000/docs |
@@ -89,7 +89,7 @@ For the development loop:
 uv sync --all-groups     # one environment for the whole workspace
 make help                # every command, with an example
 make doctor              # what is installed, what is configured, what is answering
-make test-unit           # 537 tests, no stack and no credentials needed
+make test-unit           # 584 tests, no stack and no credentials needed
 make eval                # starts its own stack and runs the 22 cases (exit 1 on any failure)
 ```
 
@@ -113,17 +113,17 @@ Written for someone who has just cloned this. PowerShell on Windows; on Linux or
 
 ```powershell
 docker compose up -d --wait        # ticketing mock + MCP server + agent, ~20s (same as: make up)
-start http://localhost:8080/       # the page: ask something, watch it propose, approve it
 docker compose logs -f agent       # what the agent is doing, as it does it
 docker compose down                # stop; add -v to drop the data volume too
 ```
 
-The page is served by the agent container itself — there is no separate web service, no nginx and no
-front-end build. `make doctor` prints what is installed, what is configured and what is answering.
+That starts the agent and **no UI**: the agent process serves the API and nothing else, and
+`docker compose ps` is three healthy services with the contract on `:8080`. The front end is a
+separate host process — the next paragraph — because that is the one front end there is now.
 
-**Or drive it from a chat UI.** `services/chat/` is a Chainlit front end over exactly the same HTTP
-API: the conversation as a message history, each tool call as a collapsible step, and the approval as
-two buttons *in the chat* rather than a card below it. It needs the agent already running:
+**The front end is a chat UI.** `services/chat/` is a Chainlit app over exactly the same HTTP API:
+the conversation as a message history, each tool call as a collapsible step, and the approval as two
+buttons *in the chat*. It needs the agent already running:
 
 ```powershell
 docker compose up -d --wait
@@ -140,7 +140,7 @@ on first use.
 **Test it.** Three levels, none of which needs a key:
 
 ```powershell
-uv run python -m devtasks test-unit         # 537 tests in ~12s: no stack, no credentials
+uv run python -m devtasks test-unit         # 584 tests in ~13s: no stack, no credentials
 uv run python -m devtasks eval              # 22 cases, its own stack, exit 1 on any failure
 uv run python -m devtasks test-integration  # the 4 tests that need the stack from the line above
 ```
@@ -185,7 +185,7 @@ $env:AGENT_MODEL_PROVIDER = 'openai'       # scripted | replay | anthropic | ope
 docker compose up -d agent                 # recreate the agent with the new environment
 ```
 
-*While it is running*, from the model control in the top right of `/`. That writes the choice to the
+*While it is running*, from the model control in the chat. That writes the choice to the
 `provider_settings` table, so it applies to the next message and survives a restart of either
 process. A stored choice this process can no longer build — a key that was removed — is refused with
 a log line naming the provider, and the configured one is kept instead, because a preference must
@@ -244,11 +244,11 @@ Three processes, and the agent never touches the ticketing system directly:
 
 ```
                  ┌────────────────────────────┐
-   browser ─────▶│  agent                :8080│  AgentCore Runtime workload
-                 │  GET  /                    │  the page: the transcript, with
-                 │  POST /invocations         │  approve · decline · cancel
-                 │  GET  /ping                │  model loop · approval · memory
-                 └────────────┬───────────────┘  traces
+   chat UI ─────▶│  agent                :8080│  AgentCore Runtime workload
+  (Chainlit,     │  POST /invocations         │  the contract: one turn in,
+   :8001)        │  GET  /ping                │  one reply out; health
+                 │  GET  /api/…               │  model loop · approval · memory
+                 └────────────┬───────────────┘  traces · no HTML served
                               │ MCP — streamable HTTP in compose, stdio on the host
                               ▼
                  ┌────────────────────────────┐
@@ -320,7 +320,7 @@ than by reading a framework's internals.
 
 **Providers** are selected at runtime and the choice is stored — one provider answers at a time for
 the whole process, and a different one is either an environment change and a restart, or a click in
-the page's model control, which persists the choice in the `provider_settings` table so it is still in
+the chat's model control, which persists the choice in the `provider_settings` table so it is still in
 force after the process restarts:
 
 | Provider | Purpose | Needs a key |
@@ -364,14 +364,16 @@ Three things follow, and together they are the argument:
 - **The architecture has to be testable apart from the model.** What this project is scored on —
   behaving correctly across a restart, the approval gate, retry and idempotency, the turn deadline — is
   ordinary code. Driving all of it through a model would give every failure two possible causes and
-charge money to find out which. That is why 537 tests run in twelve seconds for free, and why the four
+charge money to find out which. That is why 584 tests run in thirteen seconds for free, and why the four
   live providers are covered by unit tests against recorded payloads instead.
 
 The honest risk, since it is real: a reviewer who never changes provider sees a rules engine and could
-conclude the intelligence is absent. Three things are in place to prevent that — the page header names
+conclude the intelligence is absent. Three things are in place to prevent that — the chat header names
 the provider in force, switching is one environment variable and a container recreate, and the model
-control changes it at runtime with no restart. Section e names the converse gap as well: every eval case
-runs on `scripted`, so none of them asserts anything about a live model's *judgement*.
+control changes it at runtime with no restart. Section e names the converse gap as well, and it is the
+one the user asked to close: every eval case ran on `scripted`, so none of them asserted anything about
+a live model's *judgement*, and a **live-model run on `openai`** is now committed beside the
+deterministic one.
 
 Keys are `SecretStr` so a `repr()` in a log or a trace shows `**********`, and no key, key
 prefix or fingerprint is published by any endpoint. The model control names *which* configured
@@ -407,7 +409,7 @@ model asks for create_ticket
 ```
 
 **Two ways in, one gate.** `CONTRACT.md` says the answer arrives as the next `/invocations` call
-(`{"prompt": "yes, go ahead"}`); the page needs a button that acts on a specific approval id. Both
+(`{"prompt": "yes, go ahead"}`); a chat needs a button that acts on a specific approval id. Both
 work: `agent/decisions.py` classifies a message, `POST /invocations/approvals/{id}/decide` takes the
 click, and both call the same `ApprovalGate.decide` — one implementation, one row, one write. A
 message the classifier is unsure about ("yes, but first find me the printer ticket") is *not*
@@ -627,21 +629,29 @@ live model: the cases assert deterministic tool choices, which is what makes the
 
 Named rather than implied, because a suite's gaps matter more than its pass count:
 
-- **Live-model behaviour.** Every case runs on `scripted`, deliberately: a case asserting "the right
-  tool was chosen" against a live model is a probabilistic assertion, and a gate that fails one run in
-  twenty cannot gate. The live providers are covered by unit tests against recorded payloads, which
-  verifies the message translation and tool-call parsing but nothing about judgement. A live provider
-  is configured and reachable for manual testing — the running service reports which provider is in
-  force at `GET /api/providers`, and README section c says how to switch — but **no live case is
-  committed**, because committing one would make this suite non-deterministic. `replay` is the
-  mechanism for bringing a real model's actual output into the suite without that cost.
+- **Live-model behaviour is measured separately, not gated.** The committed gate runs on `scripted`,
+  deliberately: a case asserting "the right tool was chosen" against a live model is a probabilistic
+  assertion, and a gate that fails one run in twenty cannot gate. What the gate therefore cannot tell
+  you — anything about a model's *judgement* — is answered by a second, **non-gating** run committed
+  beside it: [`eval/results/live-openai/latest.md`](eval/results/live-openai/latest.md), **21 of 22
+  cases passing on `openai` (`gpt-4o`) in 86s**. It writes to its own result directory, so the
+  committed gate is never overwritten, and it is not what `make eval` runs. One case,
+  `invalid_enum_handled`, is **skipped** there rather than failed, and `eval/cases.json` says why: it
+  needs the agent to send a priority the backend rejects, which is how the refusal path stays
+  reachable and which only a provider answering from rules can be told to do — a live model correctly
+  refuses to invent an invalid value. The run reports that as *skipped* in its headline, its table and
+  its own section, because a skip is neither a pass it earned nor a failure worth acting on, and a
+  suite that hid it would be claiming coverage it does not have.
 - **Latency and cost.** Nothing asserts a ceiling on either. The turn deadline is tested by
   exhausting it deliberately, not by measuring a real slow run end to end.
 - **Concurrency.** Two turns in one session at once, or two instances sharing the database, are
   untested — the design assumes a conversation has at most one turn in flight, and that assumption is
   not asserted under load.
-- **The page.** Screenshots are produced by a real browser (`make screenshots`), but no test asserts
-  the UI's behaviour; the evals drive the HTTP contract only.
+- **The chat UI itself.** Screenshots are produced by a real browser driving the chat
+  (`devtasks screenshots`), but no test asserts the UI's behaviour — the evals drive the HTTP contract
+  only, and the chat is a client of it rather than part of it. What the chat contributes is covered
+  where it is testable: `tests/unit/test_session_listing.py` and `test_client_routes.py` cover the
+  reads it depends on, and login is exercised by hand.
 - **Everything platform-shaped.** ARM64 is cross-built, not run; the containers are verified healthy
   but not load-tested; and nothing here has been run on a second machine with a different Docker
   version.
@@ -668,8 +678,8 @@ Beyond the features, the things that stop a class of mistake rather than fixing 
 
 That last row is the one I would keep above all the others, and it is not a code guardrail. Every
 piece of work started from a written definition of done, checked against the running system; several
-of those checks found that a feature existed and was unreachable from the running system — the web
-page, and the CI compose file. Both were "working" and neither could be reached.
+of those checks found that a feature existed and was unreachable from the running system — the CI
+compose file, and a page nothing needed, which is why it is gone.
 
 ## f. Observability: what is traced, and how I'd debug a bad run
 
@@ -735,12 +745,28 @@ What a trace will not tell you: nothing about the model's *reasoning* (there is 
 nothing from a previous process (the cancel registry is deliberately process-local), and nothing about
 another user's run, because every read is scoped by `user_id` — including this one.
 
-The format is mine — a span model written to JSONL — rather than OTEL, because the requirement was a
-trace that works in a container with no extra service. It is deliberately shaped like OTEL (kind,
-name, timestamps, duration, flat attributes, order implying parent) so that moving to
-AgentCore Observability is occupying a real SDK and keeping the names; the service already carries an
-`OTEL_EXPORTER_OTLP_ENDPOINT` setting for exactly that. Items 8 and 9 of [`AGENTCORE.md`](AGENTCORE.md)
-are what I would verify before relying on it.
+The span format is mine — a small span model written to JSONL — rather than a trace produced by an
+SDK, because the requirement was a trace that works in a container with no extra service. It is
+OTEL-shaped (kind, name, timestamps, duration, flat attributes), and the service now **also exports
+each finished run over OTLP/HTTP**, so the same trace reaches a collector when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set and stays local when it is not:
+
+    docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 devtasks serve
+
+The mapping is written over `httpx` rather than the OpenTelemetry SDK, and
+`services/agent/src/agent_service/observability/otlp.py` states plainly what that gives up — no
+batching, retries, sampling or gRPC, and HTTP/JSON only. Model turns and tool calls carry the GenAI
+attribute names (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`,
+`gen_ai.tool.name`), defined in that one module, so a collector renders a run as model and tool
+calls rather than as opaque spans. An export can never delay or fail a turn: it is one POST with a
+five-second ceiling whose failure is logged.
+
+To read a run with no database and no collector, `devtasks traces` lists what is on disk and
+`devtasks traces <id>` prints one run's steps with their durations (`--dir` points it at another
+directory). Items 8 and 9 of [`AGENTCORE.md`](AGENTCORE.md) are what I would verify before relying on
+a deployed collector — cost, retention, and whether a non-framework agent is what the evaluation
+product expects.
 
 ---
 
@@ -763,9 +789,12 @@ Four further decisions that did not need an ADR but carry weight:
   silently left ungated.
 - **The approval is a row, and execution reads its arguments.** Approving one thing and executing
   another is impossible by construction, not by discipline.
-- **The page is served by the agent** as a Python constant, with no static-file mount and no build
-  step. The brief says the page is not scored on visual design; spending nothing on tooling means
-  nothing between a reviewer and a working demo.
+- **There is exactly one front end, and it is not in the agent.** The agent used to serve a small
+  hand-written page from `GET /` *as well as* the API, and the chat was the second client. Two front
+  ends meant two transcripts to keep correct and two places a proposal could render wrongly, for a
+  surface the brief does not score on design. The page is gone: the agent serves JSON, the chat
+  serves people, and `GET /` is a 404 asserted by a test so it does not come back by accident.
+  What that costs is stated in `HOW-TO-TEST.md` — a hand-driven UI now needs `uv` on the host.
 - **CI's compose file is an override, not a second stack** — and it is reachable from a terminal
   (`make up-ci`), because a topology only CI can start is a topology nobody can debug. The reasoning,
   including why Compose's `include:` was rejected, is in the header comments of
@@ -778,7 +807,7 @@ Four further decisions that did not need an ADR but carry weight:
 - **mypy in strict mode** across the services, the tests and the dev tooling — 115 files, no `any` in
   signatures, and no `# type: ignore` that is not explained.
 - **ruff** for lint and formatting, with the ruleset pinned in `pyproject.toml`.
-- **537 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
+- **584 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
   own tests), and integration tests against the composed stack for the rest.
 - **Small modules with docstrings that explain *why*.** The docstrings are the design document at the
   code level: why spans are not rows, why a cancel does not interrupt a write, why an open span
@@ -871,13 +900,17 @@ In rough priority order, and each is a real gap rather than a wish:
    completes and picks a sensible tool, would catch prompt and tool-description regressions that the
    scripted provider cannot.
 5. **Make every environment variable either read or absent.** Four separate defects in this project
-   were variables that were documented and never read: `MCP_DB_PATH` early on, and then
-   `ALLOW_RUNTIME_KEY_ENTRY`, `WEB_PORT` and `AGENT_BASE_URL`, which were found only when a question
-   about switching models was answered against the code instead of against the docs. Each presented as
-   something else — a permissions error, a missing table, a feature described in a runbook that no code
-   implements. The first is gone; the other three are now labelled reserved where they are defined. A
-   startup assertion that the settings object and `.env.example` agree would have removed a whole class
-   of afternoon.
+   were variables that were documented and never read: `MCP_DB_PATH` early on, then `WEB_PORT` (for a
+   container that was never built), and `ALLOW_RUNTIME_KEY_ENTRY` (for a form the page never had).
+   They were found only when a question about switching models was answered against the code instead
+   of against the docs, and each presented as something else — a permissions error, a missing table, a
+   feature described in a runbook that no code implements. All three are now **gone** rather than
+   labelled: `MCP_DB_PATH` was renamed to the variable the server actually reads,
+   `ALLOW_RUNTIME_KEY_ENTRY` was deleted along with the page it belonged to, and `WEB_PORT` with the
+   container. The fourth was `AGENT_BASE_URL`, and it is real — it is what `devtasks chat` reads — now
+   asserted by a test instead of by a paragraph. A startup assertion that the settings object and the
+   template agree would have removed the whole class of afternoon, and that is the change worth making
+   next rather than the fourth deletion.
 6. **A `forget me` path for memory.** Facts expire; nothing deletes. That is the wrong answer for a
    user who asks, and it is a small feature with a clear contract.
 7. **Coverage floor and mutation testing on the two critical modules** — the approval gate and the
@@ -929,8 +962,7 @@ agentcore-platform/
 ├── eval/                         the 22 cases, the runner, and committed results
 ├── mock-ticketing/               UNMODIFIED starter-kit fixture
 ├── services/
-│   ├── agent/                    the AgentCore Runtime workload (port 8080)
-│   │   └── ui/                   the page, served by the agent itself at `/`
+│   ├── agent/                    the AgentCore Runtime workload (port 8080): the API, no HTML
 │   ├── mcp-ticketing/            the MCP server for tickets (port 8081)
 │   └── chat/                     a Chainlit front end; its OWN uv project (port 8001)
 ├── tests/                        unit, contract, and integration tests

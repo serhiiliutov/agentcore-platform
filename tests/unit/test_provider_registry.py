@@ -27,8 +27,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import agent_service.db.models  # noqa: F401 - registers every table on Base.metadata
+from agent_service.api.client_routes import ProviderSelectionError
 from agent_service.api.provider_control import KNOWN_PROVIDERS, ProviderControl
-from agent_service.api.ui_routes import ProviderSelectionError
 from agent_service.config import REPLAY_DEFAULT_FILENAME, Settings
 from agent_service.db.base import Base, create_session_factory, register_sqlite_pragmas
 from agent_service.db.repositories.provider_settings import (

@@ -5,15 +5,17 @@
 #     docker compose up -d --build
 #     docker compose ps         # all three healthy
 #
-# The page is at http://localhost:8080/ and the contract is at /invocations on the
-# same port.
+# The API is at http://localhost:8080/ — /invocations and /ping, and nothing else. The
+# front end is NOT in this stack: `services/chat/` is a Chainlit app you run on the host
+# (`uv run python -m devtasks chat`, then http://localhost:8001).
 #
 # THREE services, not four. The master plan describes a separate `web` container on
-# :3000 proxying /api/* to the agent; that was not built, because the page turned out
-# to be an ordinary client of a contract that already exists, and a second container,
-# a port and a CORS policy would have bought nothing. The page is served by the agent
-# itself at `/`. A reviewer counting services will look here first, which is why this note
-# is here.
+# :3000 proxying /api/* to the agent; that was never built, because a front end turned
+# out to be an ordinary client of a contract that already exists, and a second container,
+# a port and a CORS policy buy nothing. For a while the agent also served a small page at
+# `/` of its own; that is gone for the same reason one step further, and `GET /` is now a
+# 404 asserted by a test. A reviewer counting services will look here first, which is why
+# this note is here.
 #
 # The mock is the starter kit's fixture and is never edited — surviving its failures
 # is the exercise. It is the only service with no dependency on any other.
@@ -139,9 +141,8 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       AWS_REGION: ${AWS_REGION:-eu-central-1}
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
-      # Keys from the web UI stay in process memory; never enable this on anything
-      # internet-facing (see .env.example).
-      ALLOW_RUNTIME_KEY_ENTRY: ${ALLOW_RUNTIME_KEY_ENTRY:-0}
+      # OTLP export. Empty leaves tracing local (JSONL + SQLite); set an endpoint to
+      # also export spans. See observability/ and `.env.example`.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-agentcore-platform}
     volumes:

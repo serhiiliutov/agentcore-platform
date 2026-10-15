@@ -108,14 +108,6 @@ class Settings(BaseSettings):
     aws_region: str = ""
     bedrock_model_id: str = ""
 
-    # --- Development-only: accept a key from the web UI --------------------
-    #: **Reserved and wired to nothing.** It was added for a development-only path where the
-    #: page could submit a key to be held in process memory; that path was never built, and
-    #: no endpoint accepts a key, so both values behave identically. Kept rather than deleted
-    #: so the intent stays visible and the flag is not re-invented — and it is one of the
-    #: documented-but-unread settings that README section j names as a class of defect.
-    allow_runtime_key_entry: bool = False
-
     @field_validator("trace_dir", mode="before")
     @classmethod
     def _expand_trace_dir(cls, value: object) -> object:

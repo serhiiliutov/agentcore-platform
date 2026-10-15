@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -34,6 +35,7 @@ from typing import Any
 
 import httpx
 
+from eval.provider import EvalProvider, ProviderError, resolve_provider
 from eval.report import render_markdown, summarise
 from eval.scoring import (
     DECISION,
@@ -76,6 +78,15 @@ REFUSED_STATUSES: tuple[int, ...] = (409,)
 #: happen and nothing broke, which neither "declined" nor "failed" says.
 REFUSED = "refused"
 
+#: A case that only a provider answering from rules can drive, declared in the case file.
+#:
+#: The one case that needs this asks the agent to send a value the backend's schema forbids, which
+#: is how the *refusal* path stays reachable — and only a rule-driven provider can be told to do
+#: that. A live model correctly declines to send an invalid priority, so the case fails against it
+#: for behaving well. Reported as skipped rather than as a pass (which it did not earn) or a
+#: failure (which would be noise): see the live `openai` run in `eval/results/live-openai/`.
+DETERMINISTIC_ONLY = "deterministic_only"
+
 
 def load_cases(path: Path) -> list[dict[str, Any]]:
     """Read and shape-check the case file.
@@ -109,6 +120,14 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
             raise TypeError(f"case {case_id!r} has no user_id; memory is scoped by one")
 
         _check_overrides(case_id, case.get("stack"))
+
+        # Checked as a bool rather than for truthiness: a case file that wrote the *provider name*
+        # here would be skipped for every provider, which is a silent way to stop measuring a case.
+        if DETERMINISTIC_ONLY in case and not isinstance(case[DETERMINISTIC_ONLY], bool):
+            raise TypeError(
+                f"case {case_id!r} has a non-boolean {DETERMINISTIC_ONLY}: "
+                f"{case[DETERMINISTIC_ONLY]!r}"
+            )
 
         # The optional two-user setup, checked here for the same reason as everything else: a
         # malformed case should fail before two services are started, not half-way through a run.
@@ -179,6 +198,21 @@ def _check_overrides(case_id: str, overrides: Any) -> None:
             raise TypeError(f"case {case_id!r} sets {key} to {value!r}, which is not a string")
 
 
+def _skip_reason(case: dict[str, Any], provider: EvalProvider) -> str | None:
+    """Why this case will not run against this provider, or ``None`` to run it.
+
+    A string rather than a bool, because the reason ends up in the result file: "skipped" on its
+    own invites the reader to assume the case is broken, and the sentence says instead that the
+    case cannot be driven this way.
+    """
+    if case.get(DETERMINISTIC_ONLY) and provider.is_live:
+        return (
+            "needs a provider that answers from rules: the case asks the agent to send a value "
+            "the backend rejects, which a live model correctly refuses to do"
+        )
+    return None
+
+
 def _require_previous_approval(index: int, decide: Any, pending_approval_id: str | None) -> str:
     """The approval id a decision must be applied to, or a failure explaining the case.
 
@@ -214,6 +248,11 @@ async def run_case(stack: Stack, case: dict[str, Any]) -> CaseResult:
     pending_approval_id: str | None = None
     tickets_before_decision: int | None = None
     tickets_before = stack.mock.ticket_count
+    # Seeded before the first step, and overwritten with the finished readings on the success path
+    # below. A case that aborts part-way — which is the shape *every* failure in the live `openai`
+    # run took — otherwise records an error and no evidence at all, and the evidence is the only
+    # thing that says whether the agent answered wrongly or was never asked.
+    result.tickets = {"before": tickets_before, "before_decision": None, "after": None}
 
     if case.get("chaos"):
         stack.mock.set_chaos(enabled=True, rate=1.0)
@@ -239,6 +278,10 @@ async def run_case(stack: Stack, case: dict[str, Any]) -> CaseResult:
                 if isinstance(approval, dict):
                     pending_approval_id = str(approval.get("approval_id") or "")
                 steps.append(Step(index=index, kind=INVOCATION, payload=payload))
+                # Recorded here rather than only at the end: `result.steps` is what a reader of
+                # the JSON has when a later step fails, and a failing case is exactly the one whose
+                # earlier payloads need reading.
+                result.steps = tuple(steps)
                 continue
 
             if RESTART_STEP in step:
@@ -279,6 +322,7 @@ async def run_case(stack: Stack, case: dict[str, Any]) -> CaseResult:
             # is cleared rather than left to be decided twice by a mistaken case.
             pending_approval_id = None
             steps.append(Step(index=index, kind=DECISION, payload=payload))
+            result.steps = tuple(steps)
 
         observation = Observation(
             steps=tuple(steps),
@@ -326,13 +370,26 @@ async def _seed_other_user(stack: Stack, case: dict[str, Any]) -> None:
     await stack.invoke(prompt=prompt, user_id=other_user)
 
 
-def _result_payload(results: list[CaseResult], *, duration_s: float) -> dict[str, Any]:
-    """The JSON form, shaped so a diff between two runs is readable."""
+def _result_payload(
+    results: list[CaseResult], *, duration_s: float, provider: EvalProvider
+) -> dict[str, Any]:
+    """The JSON form, shaped so a diff between two runs is readable.
+
+    The provider goes in the file rather than only on the terminal, and that is the point of
+    committing a run: "22 of 22 passed" means one thing when the model was `scripted` — the
+    orchestration is sound — and something different when it was a live model. A result file that
+    did not say which would be cited as evidence for the wrong claim.
+    """
     return {
         "version": 1,
         "duration_s": round(duration_s, 2),
+        "provider": {"name": provider.name, "live": provider.is_live},
         "passed": sum(1 for result in results if result.passed),
-        "failed": sum(1 for result in results if not result.passed),
+        "failed": sum(1 for result in results if result.failed),
+        # Counted separately, and the sum of the three is the number of cases. Folding a skip into
+        # either of the others would make the file's own arithmetic a lie: 21 passed + 1 failed
+        # would be 22 cases when one of them never ran.
+        "skipped": sum(1 for result in results if result.skipped is not None),
         "cases": [
             {
                 "id": result.case_id,
@@ -350,6 +407,7 @@ def _result_payload(results: list[CaseResult], *, duration_s: float) -> dict[str
                 # The responses themselves. Recorded because a failure that can only be
                 # understood by re-running the suite is one nobody investigates, and because
                 # the whole point of the suite is that what the service said is evidence.
+                "skipped": result.skipped,
                 "tickets": result.tickets,
                 "steps": [
                     {"index": step.index, "kind": step.kind, "payload": step.payload}
@@ -361,21 +419,29 @@ def _result_payload(results: list[CaseResult], *, duration_s: float) -> dict[str
     }
 
 
-async def _run_on_own_stack(case: dict[str, Any], overrides: Mapping[str, str]) -> CaseResult:
+async def _run_on_own_stack(
+    case: dict[str, Any], overrides: Mapping[str, str], provider: EvalProvider
+) -> CaseResult:
     """Run one case against a stack built for it, and take that stack down afterwards.
 
     The teardown is in a `finally` so a case that raises still gives its ports and its MCP
     subprocess back. A leak here would not be noticed until the suite had run often enough to
     exhaust something, which is the kind of failure nobody traces back to the eval.
+
+    The run's provider is passed here as well as to the shared stack. Missing it would mean a case
+    that varies process configuration ran on `scripted` while the rest of the suite ran on a model
+    — a suite that measured two different things and reported one number.
     """
-    stack = start_stack(overrides=overrides)
+    stack = start_stack(overrides=overrides, extra_env=provider.env)
     try:
         return await run_case(stack, case)
     finally:
         stack.shutdown()
 
 
-async def run(cases: list[dict[str, Any]], *, verbose: bool) -> tuple[list[CaseResult], float]:
+async def run(
+    cases: list[dict[str, Any]], *, verbose: bool, provider: EvalProvider
+) -> tuple[list[CaseResult], float]:
     """Bring up the shared stack, run every case, and take everything down again.
 
     A case that declares `stack` overrides gets its own stack, because the two settings a case has
@@ -384,21 +450,37 @@ async def run(cases: list[dict[str, Any]], *, verbose: bool) -> tuple[list[CaseR
     started from a clean process would hide the state-leak defect this suite exists for.
     """
     started = time.monotonic()
-    stack = start_stack()
+    stack = start_stack(extra_env=provider.env)
     results: list[CaseResult] = []
 
     try:
         for case in cases:
             case_started = time.monotonic()
+            # Decided before any work: a skipped case must not start a stack of its own, and must
+            # not touch the shared one — a case that declared itself out and then left a proposal
+            # behind would corrupt the cases that follow it.
+            skip = _skip_reason(case, provider)
+            if skip is not None:
+                results.append(
+                    CaseResult(
+                        case_id=str(case["id"]),
+                        family=str(case.get("family", "")),
+                        why=str(case.get("why", "")),
+                        skipped=skip,
+                    )
+                )
+                print(f"  SKIP  {case['id']}  ({skip})")
+                continue
+
             overrides = case.get("stack")
             if overrides:
-                result = await _run_on_own_stack(case, overrides)
+                result = await _run_on_own_stack(case, overrides, provider)
             else:
                 result = await run_case(stack, case)
             elapsed = time.monotonic() - case_started
             results.append(result)
 
-            verdict = "PASS" if result.passed else "FAIL"
+            verdict = "FAIL" if result.failed else "PASS"
             print(f"  {verdict}  {result.case_id}  ({elapsed:.1f}s)")
             if not result.passed and verbose:
                 if result.error:
@@ -433,18 +515,37 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cases = _select(load_cases(args.cases), args.only)
-    print(f"Running {len(cases)} case(s) against a live stack.\n")
 
-    results, duration_s = asyncio.run(run(cases, verbose=not args.quiet))
+    try:
+        provider = resolve_provider()
+    except ProviderError as error:
+        # Refused before a stack is built, so a mistyped provider name or a missing key costs a
+        # sentence rather than a minute of bringing two services up to fail inside a case.
+        print(f"cannot run the suite: {error}", file=sys.stderr)
+        return 2
+
+    print(f"Running {len(cases)} case(s) against a live stack.")
+    print(f"Provider: {provider.describe()}\n")
+    if provider.is_live:
+        print(
+            "  A live model is not deterministic: a case asserting which tool was chosen can "
+            "fail because the model chose differently, not because the code regressed. Read the "
+            "failures as findings, not as a broken build.\n"
+        )
+
+    results, duration_s = asyncio.run(run(cases, verbose=not args.quiet, provider=provider))
     markdown = render_markdown(
         results,
         duration_s=duration_s,
         passed=summarise(results),
+        provider_name=provider.name,
+        provider_is_live=provider.is_live,
     )
 
     args.results.mkdir(parents=True, exist_ok=True)
     (args.results / "latest.json").write_text(
-        json.dumps(_result_payload(results, duration_s=duration_s), indent=2) + "\n",
+        json.dumps(_result_payload(results, duration_s=duration_s, provider=provider), indent=2)
+        + "\n",
         encoding="utf-8",
     )
     (args.results / "latest.md").write_text(markdown + "\n", encoding="utf-8")
@@ -454,7 +555,9 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(f"Wrote {args.results / 'latest.md'} and {args.results / 'latest.json'}")
 
-    failed = [result for result in results if not result.passed]
+    # Counted on `failed`, not on `not passed`: a skipped case did not fail, and letting it turn
+    # the exit code red would make every live run fail for a case it deliberately did not run.
+    failed = [result for result in results if result.failed]
     if failed:
         print(f"\n{len(failed)} case(s) failed.")
         return 1

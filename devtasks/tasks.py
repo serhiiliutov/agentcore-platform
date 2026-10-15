@@ -12,8 +12,9 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 from urllib.error import URLError
 from urllib.parse import urlparse, urlunsplit
 from urllib.request import Request, urlopen
@@ -416,7 +417,7 @@ def _local_env() -> dict[str, str]:
 
 
 def serve(extra: Sequence[str] = ()) -> int:
-    """Run the agent service against the locally started mock. Blocking; the page is at ``/``.
+    """Run the agent service against the locally started mock. Blocking; it serves the API only.
 
     Run with ``cwd=AGENT_DIR`` for exactly the reason ``migrate`` is: the default
     ``DATABASE_URL`` is a relative SQLite path, so the database Alembic created is the one the
@@ -591,10 +592,20 @@ def _host_reachable(base_url: str) -> str:
     return urlunsplit((parsed.scheme or "http", f"127.0.0.1:{port}", parsed.path, "", ""))
 
 
-#: The page under capture, and the two turns the assignment asks to see.
-PAGE_URL = "http://127.0.0.1:8080"
+#: Where the agent's API is, and where the front end is. Both are checked before a capture: the
+#: chat renders perfectly well with no API behind it, and photographing that would produce a frame
+#: labelled "a read" that shows a connection error.
+AGENT_URL = "http://127.0.0.1:8080"
+CHAT_URL = f"http://127.0.0.1:{CHAT_PORT}"
 READ_PROMPT = "find tickets about the printer"
 WRITE_PROMPT = "please raise a ticket: the printer on the third floor is jammed again"
+#: The chat's own label on the button that runs a proposed write, used to click it.
+#:
+#: Not used to wait for it to disappear, which is what this comment claimed until it was measured:
+#: the chat leaves the approval card on screen with its buttons after a decision, so that wait never
+#: succeeds. The frame after the click waits for the decision's outcome instead — see
+#: `_capture_happy_path`.
+APPROVE_BUTTON = "Approve and run"
 
 
 def screenshots(extra: Sequence[str] = ()) -> int:
@@ -602,8 +613,14 @@ def screenshots(extra: Sequence[str] = ()) -> int:
 
     The assignment asks for screenshots or a recording of a read, a proposed write, the approval
     and a failure being handled. A screenshot nobody can reproduce is worth little, so this drives
-    a real browser over the Chrome DevTools Protocol against the running service and writes what
-    it sees — see `devtasks/chrome.py` for the driver and why it is not Playwright.
+    a real browser over the Chrome DevTools Protocol against the running **chat** — the only front
+    end there is, since the agent's own page was removed — and writes what it sees. See
+    `devtasks/chrome.py` for the driver and why it is not Playwright.
+
+    Three things have to be up, and it says which one is missing rather than timing out later:
+
+        devtasks up             # the three services
+        devtasks chat           # the front end at http://localhost:8001, in its own terminal
 
     Two modes, because they need two different stacks:
 
@@ -612,19 +629,29 @@ def screenshots(extra: Sequence[str] = ()) -> int:
       * **`--failure`** — the backend failing and the agent saying so, against a stack whose mock
         is *actually* failing:
 
-            devtasks down-ci
-            FLAKY=1 FLAKY_RATE=1.0 devtasks up      # PowerShell: $env:FLAKY='1'; $env:FLAKY_RATE='1.0'
+            devtasks down && FLAKY=1 FLAKY_RATE=1.0 devtasks up   # PowerShell: $env:FLAKY='1'; ...
 
         One frame: `05-failure-handled`.
 
     The failure mode is a separate run rather than an extra step in the first one, and that is not
     a convenience. With `FLAKY_RATE=1.0` every backend call fails, so the write the third frame
     proposes could never be executed — the approval in the fourth step would fail and the run
-    would stop halfway. Asserting an approval against a backend that cannot approve anything would
-    be a screenshot of the harness, not of the product.
+    would stop half-way. Screenshotting an approval against a backend that cannot approve anything
+    would be a picture of the harness, not of the product.
 
     The task does not restart the mock itself to create the failure: it refuses to draw a failure
     the stack did not really produce.
+
+    **A second capture needs a clean ledger.** The scripted provider sends a fixed idempotency key
+    for the ticket it creates — that is what makes the eval's replay assertions deterministic — so a
+    run against a stack that has already executed that write is refused as a duplicate and the
+    approval step fails. Reset first, which drops the MCP server's ledger along with the mock's
+    data::
+
+        devtasks down -v && devtasks up
+
+    That is a property of the scripted provider, not of the capture: against a live model the key
+    would differ on every run.
 
     The browser is imported here rather than at module scope so that `devtasks help`, or any other
     task, does not depend on a websocket library being importable — the driver is one command's
@@ -632,14 +659,10 @@ def screenshots(extra: Sequence[str] = ()) -> int:
     """
     from devtasks import chrome as browser_driver
 
-    agent_up = _agent_is_answering()
-    if not agent_up:
-        raise TaskError(
-            f"nothing is answering at {PAGE_URL}/ping, so there is no run to capture. "
-            f"Start the stack first: `devtasks up-ci` (or `devtasks up`)."
-        )
+    _require_running_stack()
 
     with browser_driver.Chrome.launch() as page:
+        _sign_in(page)
         outputs = _capture_failure(page) if "--failure" in extra else _capture_happy_path(page)
 
     for written in outputs:
@@ -652,45 +675,39 @@ def screenshots(extra: Sequence[str] = ()) -> int:
 
 
 def _capture_happy_path(page: Chrome) -> list[Path]:
-    """A read, a proposed write and the approval, ending in frames 01-04."""
+    """A read, a proposed write and the approval, ending in frames 01-04.
+
+    Every wait is on something the *product* produced — the tool's own name, which the chat uses as
+    the step's title, and its own label on the approval button — rather than on a delay or on a
+    count of DOM nodes. A frame therefore cannot be taken before the thing it is named after
+    exists, and none of these waits knows a CSS class the chat is free to change.
+    """
     outputs: list[Path] = []
 
-    page.goto(f"{PAGE_URL}/")
-    page.wait_for("document.querySelector('#ask') !== null", description="the page to render")
-    # A capture run must start from a known state: a proposal left over from somebody's earlier
-    # poking would appear in the first frame and make these screenshots describe another run.
-    page.wait_for(
-        "document.querySelectorAll('#pending .approval').length === 0",
-        timeout=10,
-        description="no proposal to be outstanding before the run starts",
-    )
+    _await_ready(page)
     outputs.append(page.screenshot(MEDIA_DIR / "01-loaded.png"))
 
-    calls_before = _count(page, "#transcript .call")
-    _submit(page, READ_PROMPT)
-    _await_more(page, "#transcript .call", calls_before, "the read to call a tool", timeout=60)
+    _send(page, READ_PROMPT)
+    _await_text(page, "search_tickets", timeout=90, description="the search step to appear")
     outputs.append(page.screenshot(MEDIA_DIR / "02-read.png"))
 
-    _submit(page, WRITE_PROMPT)
-    page.wait_for(
-        "document.querySelector('#pending .approval') !== null",
-        timeout=60,
-        description="the write to be proposed rather than run",
-    )
+    _send(page, WRITE_PROMPT)
+    _await_text(page, "create_ticket", timeout=90, description="the write to be proposed")
+    _await_text(page, APPROVE_BUTTON, timeout=60, description="the approval to be offered")
     outputs.append(page.screenshot(MEDIA_DIR / "03-proposed-write.png"))
 
-    page.click("#pending .approval button.ok")
-    page.wait_for(
-        "document.querySelectorAll('#pending .approval').length === 0",
-        timeout=60,
-        description="the proposal to be decided",
-    )
-    page.wait_for(
-        "Array.from(document.querySelectorAll('#transcript .turn .role'))"
-        ".some(function (n) { return n.textContent.indexOf('write') === 0; })",
-        timeout=30,
-        description="the executed write to appear in the transcript",
-    )
+    page.click_text(APPROVE_BUTTON)
+    # Wait for the decision's *outcome*, not for the button to go. The chat answers a decision with
+    # its own message — `**executed** — …` in `services/chat/app.py::_apply_decision` — and it
+    # leaves the approval card on screen with its buttons, so "Approve and run" disappearing waits
+    # for something the product never does. That is measured rather than assumed: the click had
+    # reached the agent (a `200` on `POST /invocations/approvals/<id>/decide` in the chat's log) and
+    # the capture still timed out on this wait for sixty seconds.
+    #
+    # The word is `executed` specifically, because this frame is titled "approved write". Any other
+    # outcome — `declined`, `failed`, `expired` — means the approval did not produce a ticket, and a
+    # capture that photographed that under this name would be showing the opposite of what it says.
+    _await_text(page, "executed", timeout=60, description="the approved write to be reported")
     outputs.append(page.screenshot(MEDIA_DIR / "04-approved-write.png"))
     return outputs
 
@@ -698,70 +715,210 @@ def _capture_happy_path(page: Chrome) -> list[Path]:
 def _capture_failure(page: Chrome) -> list[Path]:
     """One read against a failing backend, ending in frame 05.
 
-    The assertion is the error *on screen* — a red tool call in the transcript — rather than a
-    particular message, so the frame proves the path was taken without pinning the wording of an
-    error the MCP server is free to improve.
+    The assertion is the failure *on screen* — the chat's own "FAILED" marker, which it puts at the
+    top of a step whose call had an error outcome — rather than a particular message, so the frame
+    proves the path was taken without pinning the wording of an error the MCP server is free to
+    improve.
     """
-    page.goto(f"{PAGE_URL}/")
-    page.wait_for("document.querySelector('#ask') !== null", description="the page to render")
-    _submit(page, READ_PROMPT)
-    page.wait_for(
-        "document.querySelector('#transcript .call.err') !== null",
-        timeout=180,
-        description="the backend failure to surface as an error tool call",
-    )
+    _await_ready(page)
+    _send(page, READ_PROMPT)
+    _await_text(page, "FAILED", timeout=180, description="the backend failure to surface")
     return [page.screenshot(MEDIA_DIR / "05-failure-handled.png")]
 
 
-def _count(page: Chrome, selector: str) -> int:
-    """How many elements match `selector` right now."""
-    return int(page.evaluate(f"document.querySelectorAll({json.dumps(selector)}).length"))
+def _await_ready(page: Chrome) -> None:
+    """Wait until the chat has booted and is usable, not merely mounted.
 
+    Two conditions, and the second is the whole point: `#chat-input` appears as soon as React
+    mounts, which is *before* the app has read `GET /api/providers` and sent the message that says
+    what it is connected to. Waiting on the composer alone therefore photographs a page that has a
+    header, a theme toggle and nothing else — which is the frame this produced, and it was caught by
+    opening the image rather than by trusting the wait. "Loaded" has to mean the conversation is
+    there.
 
-def _await_more(
-    page: Chrome,
-    selector: str,
-    previous: int,
-    description: str,
-    *,
-    timeout: float,
-) -> None:
-    """Wait for a *new* match to appear, not merely for one to exist.
-
-    Counting rather than testing for presence, because the transcript accumulates: after the first
-    turn, "there is a tool call on screen" is already true, so a presence check would let the
-    second capture fire before the second turn had produced anything and every later screenshot
-    would show the previous turn's result.
+    `Connected to` is the app's own opening line (`services/chat/app.py::on_chat_start`), so this
+    stays a statement about the product: if the chat stops saying that, the capture should fail
+    loudly rather than quietly photograph an empty page.
     """
     page.wait_for(
-        f"document.querySelectorAll({json.dumps(selector)}).length > {previous}",
-        timeout=timeout,
-        description=description,
+        "document.querySelector('#chat-input') !== null",
+        timeout=45,
+        description="the composer to render",
     )
+    _await_text(page, "Connected to", timeout=45, description="the chat to open its conversation")
 
 
-def _submit(page: Chrome, text: str) -> None:
-    """Type a message, submit the form, and wait for it to appear in the transcript."""
-    page.set_value("#message", text)
-    page.click("#ask button[type=submit]")
+def _has_text(value: str) -> str:
+    """A JavaScript expression that is true when any element on the page contains `value`.
+
+    Text rather than a selector throughout the capture, and that is chosen rather than lazy: the
+    strings being waited for are the *product's* own — the tool's name, which the chat uses as its
+    step title, and the chat's label on the approval button — so a frame cannot be taken before the
+    thing it is named after exists. A selector would instead encode this repository's guess at
+    Chainlit's generated class names, which is a guess that breaks on a dependency upgrade and
+    fails as "timed out" rather than as "the markup changed".
+    """
+    return f"(document.body.innerText || '').indexOf({json.dumps(value)}) !== -1"
+
+
+def _await_text(
+    page: Chrome,
+    value: str,
+    *,
+    timeout: float,
+    description: str,
+) -> None:
+    """Wait for `value` to appear anywhere on the page."""
+    page.wait_for(_has_text(value), timeout=timeout, description=description)
+
+
+def _send(page: Chrome, text: str) -> None:
+    """Type a message into the chat's composer, submit it, and verify it was really sent.
+
+    `type_keys` and `press_enter` rather than assigning a value, and that is not a detail: the
+    composer is a controlled React input whose send button stays disabled until React's own state
+    holds the text, and both of the obvious shortcuts fail *silently* against it. See
+    `devtasks/chrome.py::type_keys` for what was measured.
+
+    **Every wait here exists because of a way this failed while building the capture.** The first
+    version typed, pressed Enter, and waited for the composer to clear; the capture then waited
+    ninety seconds for a tool step that never arrived, with no `POST /invocations` in the chat's own
+    log — which is how the cause was pinned to the send rather than to the agent. The composer had
+    cleared because Chainlit *replaced* the node while the app was still booting (it re-renders once
+    `GET /api/providers` answers, and swaps the composer for a stop button during a turn), so the
+    keystrokes had landed in a detached node and nothing was sent at all. A probe that waited for the
+    composer to settle first sent the same message on the first try.
+
+    So, in order: wait for a composer to exist, type, assert the composer *holds* the text (React
+    renders an empty one if the typing was lost), press Enter, and then wait for the message to appear
+    in the transcript — the only one of the three that means "it was sent". A verdict based on the
+    composer emptying cannot tell a submission from a replaced node, which is exactly the mistake this
+    replaces.
+
+    One retry, and only into an empty composer: if the text is still there, Enter went nowhere and is
+    pressed again; if the composer is empty the message was submitted and the transcript is simply
+    slower than the wait, so it waits again instead. That distinction is what stops a retry from
+    sending the same message twice.
+    """
     page.wait_for(
-        "Array.from(document.querySelectorAll('#transcript .turn.user .said'))"
-        f".some(function (n) {{ return n.textContent === {json.dumps(text)}; }})",
+        "document.querySelector('#chat-input') !== null",
+        timeout=30,
+        description="the composer to exist before typing",
+    )
+    _type_message(page, text)
+    page.press_enter("#chat-input")
+
+    try:
+        _await_text(page, text, timeout=25, description="the message to reach the transcript")
+    except TaskError:
+        if _composer_holds(page, text):
+            page.press_enter("#chat-input")
+        _await_text(page, text, timeout=45, description="the message to reach the transcript")
+
+
+def _type_message(page: Chrome, text: str) -> None:
+    """Put `text` in the composer, and refuse to continue unless it is really there."""
+    page.type_keys("#chat-input", text)
+    page.wait_for(
+        f"(document.querySelector('#chat-input') || {{}}).value === {json.dumps(text)}",
         timeout=15,
-        description="the submitted message to appear in the transcript",
+        description="the composer to hold the message, which is how a lost keystroke shows up",
     )
 
 
-def _agent_is_answering() -> bool:
-    """Whether the agent's health endpoint answers. Never raises."""
+def _composer_holds(page: Chrome, text: str) -> bool:
+    """Whether the composer still contains `text` — i.e. Enter did not submit anything."""
+    return bool(page.evaluate(f"(document.querySelector('#chat-input') || {{}}).value === {json.dumps(text)}"))
+
+
+def _require_running_stack() -> None:
+    """Refuse to draw a run nobody is serving, naming which piece is missing.
+
+    Two things have to be up and they fail in different ways: the agent, which is the API the chat
+    calls, and the chat itself. Reported separately because "start the chat in another terminal"
+    and "start the stack" are different instructions, and a capture that named the wrong one would
+    send somebody to look at a process that is running perfectly well.
+    """
+    if not _is_answering(f"{AGENT_URL}/ping"):
+        raise TaskError(
+            f"nothing is answering at {AGENT_URL}/ping, so there is no run to capture. "
+            f"Start the stack first: `devtasks up`."
+        )
+    if not _is_answering(f"{CHAT_URL}/"):
+        raise TaskError(
+            f"nothing is answering at {CHAT_URL}/, so there is no front end to capture. "
+            f"Start it in another terminal: `devtasks chat`."
+        )
+
+
+def _is_answering(url: str) -> bool:
+    """Whether a URL answers with something other than an error. Never raises."""
     try:
-        request = Request(f"{PAGE_URL}/ping")
-        with urlopen(request, timeout=2) as response:
-            # `int(...)` rather than `== 200` alone: urllib is untyped, so the comparison is
-            # `Any` and mypy would have the function return it as-is.
-            return int(response.status) == 200
+        with urlopen(Request(url), timeout=2) as response:
+            # `int(...)` rather than a bare comparison: urllib is untyped, so the status arrives as
+            # `Any` and mypy would have this function return it as-is.
+            return int(response.status) < 400
     except (URLError, OSError):
         return False
+
+
+def _sign_in(page: Chrome) -> None:
+    """Open the chat, signing in when it is configured to ask for one.
+
+    Both configurations are supported deliberately, because both are supported by the app: with
+    `CHAT_USERS` set it shows a login screen, and without it the visitor is anonymous. The
+    credentials come from the same allow-list `devtasks chat` starts the app with, so the capture
+    cannot disagree with the running process about who may log in — and a capture that assumed one
+    of the two would fail on the other with a timeout naming the wrong thing.
+
+    Chainlit's own field is labelled "Email address"; this app takes the account *name* in it, which
+    is documented in HOW-TO-TEST.md and is why nothing here looks like an email.
+    """
+    page.goto(f"{CHAT_URL}/")
+    # Wait for *either* screen before deciding which one this is. Checking for the login form
+    # immediately after `goto` found nothing, because Chainlit had not rendered yet — so the sign-in
+    # was skipped, and the wait below then timed out on a composer that was behind a login screen.
+    page.wait_for(
+        "document.querySelector('#email') !== null "
+        "|| document.querySelector('#chat-input') !== null",
+        timeout=45,
+        description="the chat to render either the login screen or the conversation",
+    )
+    if page.evaluate("document.querySelector('#email') === null"):
+        return
+
+    accounts = _accounts_from_environment()
+    if not accounts:
+        raise TaskError(
+            "the chat is asking for a login, but CHAT_USERS is in neither .env nor the "
+            "environment, so this task has no account to sign in with. Set CHAT_USERS (see "
+            "HOW-TO-TEST.md, section 2.1) or start the chat without it."
+        )
+    name, password = accounts[0]
+    page.type_keys("#email", name)
+    page.type_keys("#password", password)
+    page.click_text("Sign In")
+    page.wait_for(
+        "document.querySelector('#chat-input') !== null",
+        timeout=45,
+        description="the signed-in chat to render its composer",
+    )
+
+
+def _accounts_from_environment() -> list[tuple[str, str]]:
+    """`name:password` pairs from the chat's own settings, in the order they were written.
+
+    Deliberately the same source the app reads, rather than a second place to configure a capture
+    account: a duplicate would be one more thing to keep in step, and it would drift in the
+    direction that matters — the capture signing in as somebody who no longer exists.
+    """
+    raw = _chat_environment().get("CHAT_USERS", "")
+    accounts: list[tuple[str, str]] = []
+    for entry in raw.split(","):
+        name, _, password = entry.partition(":")
+        if name.strip() and password:
+            accounts.append((name.strip(), password))
+    return accounts
 
 
 # ---------------------------------------------------------------------------
@@ -799,11 +956,19 @@ def revision(extra: Sequence[str] = ()) -> int:
 # Evals
 # ---------------------------------------------------------------------------
 def evaluate(extra: Sequence[str] = ()) -> int:
-    """Run the eval suite against a running stack. Read-only, exits non-zero on failure."""
+    """Run the eval suite. Read-only; exits non-zero when a case fails.
+
+    The suite starts and stops its own stack on free ports, so nothing has to be running first —
+    which is what makes it usable as a gate. `EVAL_PROVIDER` chooses the model it runs against;
+    it defaults to `scripted`, which needs no credential, and `eval/provider.py` refuses at the
+    start rather than half-way through if a named live provider cannot be built.
+    """
     if not (EVAL_DIR / "runner.py").exists():
+        # A guard rather than a formality: this path is documented in the README as the command
+        # that produces the committed results, so a missing runner must say so instead of failing
+        # as an unhelpful "no module named eval.runner".
         raise TaskError(
-            "the eval runner does not exist yet (eval/runner.py arrives in Stage 13). "
-            "Nothing has been checked."
+            "the eval runner is missing (eval/runner.py), so nothing has been checked."
         )
     return python(["-m", "eval.runner", *extra])
 
@@ -904,10 +1069,12 @@ def _print_mock_status() -> None:
     endpoints: list[tuple[str, str, dict[str, str]]] = [
         ("ticketing mock", "http://127.0.0.1:8000/health", {}),
         ("agent /ping", "http://127.0.0.1:8080/ping", {}),
-        # The page is served by the agent itself (Stage 11), so it is the agent's port. Probed
-        # as well as /ping because a page that fails while health answers is a different fault,
-        # and the one a reviewer would hit first.
-        ("agent web page", "http://127.0.0.1:8080/", {}),
+        # The chat front end, if it is running. Probed as well as /ping because the UI being down
+        # while the agent is healthy is a different fault — and it is the one a reviewer hits
+        # first, since the agent serves no page of its own any more (see `client_routes.py`).
+        # Unreachable here is not a fault: the chat is a host process, started by `devtasks chat`,
+        # and the stack is perfectly usable without it.
+        ("chat UI", f"http://127.0.0.1:{CHAT_PORT}/", {}),
     ]
     for label, url, headers in endpoints:
         try:
@@ -976,3 +1143,219 @@ def _published_dirnames(parent: Path) -> list[str]:
         if len(parts) > depth:
             names.add(parts[depth])
     return sorted(name for name in names if (parent / name).is_dir())
+# ---------------------------------------------------------------------------
+# Traces
+# ---------------------------------------------------------------------------
+#: Where a run's spans are on *this* machine, when `--dir` does not say otherwise.
+#:
+#: `data/dbview/traces`, because that is where the documented way of reading a trace on the host
+#: puts them: `HOW-TO-TEST.md` section 6 starts the stack with `docker-compose.dbview.yml`, which
+#: replaces the agent's `/data` volume with `./data/dbview/`. A default of `data/traces` would be
+#: the *service's* default rather than the reader's — and it is a directory nothing has written to,
+#: which reads as "no traces yet" on a machine that has plenty.
+#:
+#: `.env` is deliberately not consulted. It sets `TRACE_DIR=/data/traces`, a path inside the agent
+#: container: correct for compose, and a directory no host process can open. Reading it would make
+#: this task fail with "no such directory" on a machine where the stack is running perfectly — the
+#: same class of mistake as `AGENT_BASE_URL=http://agent:8080` for a host chat, which is why
+#: `_host_reachable` exists.
+TRACE_DIR_DEFAULT = REPO_ROOT / "data" / "dbview" / "traces"
+
+#: How wide a rendered attribute value may get before it is elided. Wide enough for a ticket id or
+#: an error sentence, narrow enough that a row stays readable in a terminal.
+_TRACE_VALUE_CHARS = 44
+
+
+def _trace_directory(override: str | None) -> Path:
+    """Where to look for trace files: `--dir` when given, the service's default otherwise."""
+    return Path(override) if override else TRACE_DIR_DEFAULT
+
+
+def _read_spans(path: Path) -> list[dict[str, Any]]:
+    """One trace file's spans, in the order they were recorded.
+
+    A malformed line is reported with its number rather than skipped. The file is written
+    all-at-once to a temporary path and moved into place (see `observability/tracer.py`), so a
+    partial line means something is genuinely wrong — and a viewer that silently dropped it would
+    show a run with a step missing and no indication that anything was lost.
+    """
+    spans: list[dict[str, Any]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            spans.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            raise TaskError(f"{path.name} line {number} is not JSON: {error}") from error
+    return spans
+
+
+def _moment(span: dict[str, Any], key: str) -> datetime | None:
+    """A span's timestamp, or None when it is absent or unparseable.
+
+    `None` rather than an exception: an `ended_at` of null is the documented shape of a span whose
+    run died mid-turn, and a viewer that refused to print the interrupted run would be a viewer
+    that fails on exactly the run worth looking at.
+    """
+    value = span.get(key)
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _render_value(value: Any) -> str:
+    """One attribute value, flattened to a single short line."""
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    flattened = " ".join(str(text).split())
+    if len(flattened) > _TRACE_VALUE_CHARS:
+        return flattened[: _TRACE_VALUE_CHARS - 1] + "…"
+    return flattened
+
+
+def _render_span(span: dict[str, Any], *, origin: datetime | None) -> str:
+    """One span as a line: when, what, how long, and the attributes that explain it."""
+    started = _moment(span, "started_at")
+    offset = f"+{(started - origin).total_seconds():7.3f}s" if started and origin else " " * 9
+    duration = span.get("duration_ms")
+    duration_text = f"{duration}ms".rjust(7) if isinstance(duration, int) else "      -"
+
+    attributes = span.get("attributes") or {}
+    detail = "  ".join(f"{key}={_render_value(value)}" for key, value in attributes.items())
+    line = f"  {offset}  {span.get('kind', '?')!s:<9} {span.get('name', '?')!s:<20}"
+    line += f"{duration_text}"
+    return f"{line}  {detail}" if detail else line
+
+
+def _display_path(path: Path) -> str:
+    """A path relative to the repository when it is inside it, the full path when it is not.
+
+    `--dir` exists so that a trace directory *anywhere* can be read — a copy pulled out of the
+    agent container, a checkout of somebody else's run. `relative_to` raises for precisely those,
+    which is how this was found: the flag that makes the task useful on another machine's files
+    failed on the first one tried.
+    """
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _describe_file(path: Path, spans: list[dict[str, Any]]) -> str:
+    """One trace file as a line of a listing: how long, how many steps, and whether it failed.
+
+    Failures are lifted into the line rather than left in the attributes because the listing exists
+    to answer "which run do I want to open", and "this one had a failed call" is the single most
+    useful thing to know before opening anything.
+    """
+    started = _moment(spans[0], "started_at") if spans else None
+    ended = _moment(spans[-1], "ended_at") if spans else None
+    span = f"{(ended - started).total_seconds():.3f}s" if started and ended else "     ?"
+    kinds = sorted({str(item.get("kind", "?")) for item in spans})
+    failed = any((item.get("attributes") or {}).get("failed") for item in spans)
+    marker = "FAILED" if failed else "ok    "
+    return (
+        f"  {path.stem[:12]}  {len(spans):>3} span(s)  {span:>8}  {marker}  "
+        f"{', '.join(kinds) or '-'}"
+    )
+
+
+def traces(extra: Sequence[str] = ()) -> int:
+    """Read a run's spans back. Read-only; needs no stack and no database.
+
+        devtasks traces                  # the runs on disk, newest first
+        devtasks traces 3f0c4e2a         # one run, step by step, by id prefix
+        devtasks traces 3f0c4e2a --json  # the same run as the raw records
+
+    The third of the three ways a run is readable, and the one that works when nothing else does:
+    the `traces` table is the searchable summary and the client routes serve it over HTTP, while
+    this reads the JSONL files the service writes beside them. So it answers "what did this run do"
+    on a machine with no database, no stack and no network.
+
+    It prints what the file holds and computes nothing it cannot see. In particular it does not
+    report the provider, the model or the run's status: those live in the `traces` row, and a viewer
+    that guessed them from the file would be inventing the fields a reader most wants to trust.
+
+    Under plain compose the files are inside the agent container, so the documented way to read them
+    on the host is the `dbview` override (`HOW-TO-TEST.md`, section 6) — which is where the default
+    comes from. For anywhere else — a copy pulled out of a container, a colleague's run — pass
+    `--dir`.
+    """
+    arguments = [item for item in extra if not item.startswith("--")]
+    flags = {item for item in extra if item.startswith("--")}
+    directory_flag = next(
+        (item.split("=", 1)[1] for item in extra if item.startswith("--dir=")), None
+    )
+    if "--dir" in extra:
+        position = extra.index("--dir")
+        if position + 1 >= len(extra):
+            raise TaskError("--dir needs a path, e.g. devtasks traces --dir data/traces")
+        directory_flag = extra[position + 1]
+        arguments = [item for item in arguments if item != directory_flag]
+
+    directory = _trace_directory(directory_flag)
+    if not directory.exists():
+        raise TaskError(
+            f"no trace directory at {directory}. It is created when the service records its first "
+            f"run, so this usually means nothing has run yet — or that the service is running in "
+            f"compose, where its traces are inside the container (see the help on this task)."
+        )
+
+    files = sorted(directory.glob("*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not files:
+        print(f"no traces in {directory} yet.")
+        return 0
+
+    if not arguments:
+        print(f"{len(files)} trace(s) in {directory}, newest first:\n")
+        for path in files[:_trace_limit(flags, extra)]:
+            try:
+                print(_describe_file(path, _read_spans(path)))
+            except TaskError as error:
+                print(f"  {path.stem[:12]}  unreadable: {error}")
+        print("\nOpen one with: devtasks traces <id>")
+        return 0
+
+    wanted = arguments[0]
+    matches = [path for path in files if path.stem.startswith(wanted)]
+    if not matches:
+        raise TaskError(f"no trace id starts with {wanted!r} in {directory}")
+    if len(matches) > 1:
+        raise TaskError(
+            f"{len(matches)} traces start with {wanted!r}; give more of the id: "
+            + ", ".join(path.stem[:12] for path in matches[:5])
+        )
+
+    path = matches[0]
+    spans = _read_spans(path)
+    if "--json" in flags:
+        print(json.dumps(spans, indent=2))
+        return 0
+
+    origin = _moment(spans[0], "started_at") if spans else None
+    print(f"{path.stem}  ({len(spans)} span(s), from {_display_path(path)})")
+    if not spans:
+        print("  the file is empty — the run recorded no spans")
+        return 0
+    for span in spans:
+        print(_render_span(span, origin=origin))
+    return 0
+
+
+def _trace_limit(flags: set[str], extra: Sequence[str]) -> int:
+    """How many traces to list. `--limit N` or `--limit=N`; 20 by default."""
+    default = 20
+    if not any(item.startswith("--limit") for item in flags | set(extra)):
+        return default
+    raw = next(
+        (item.split("=", 1)[1] for item in extra if item.startswith("--limit=")), None
+    )
+    if raw is None and "--limit" in extra:
+        position = extra.index("--limit")
+        raw = extra[position + 1] if position + 1 < len(extra) else None
+    try:
+        return max(1, int(raw or default))
+    except ValueError as error:
+        raise TaskError(f"--limit takes a number, got {raw!r}") from error

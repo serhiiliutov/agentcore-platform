@@ -1,9 +1,9 @@
-"""The two endpoints the model picker talks to, and the header chip's source of truth.
+"""The two endpoints the model picker talks to, and a chat header's source of truth.
 
 Tested through `create_app` with injected handlers rather than through a live registry, because the
 questions here are about the HTTP contract: which status code a refusal gets, that an unwired build
-answers 501 instead of 500, that the chip follows the *live* selection rather than the startup
-setting, and that no response can carry a credential.
+answers 501 instead of 500, that the reported provider follows the *live* selection rather than the
+startup setting, and that no response can carry a credential.
 
 The last one is a schema assertion rather than a value comparison. A test that sent a fake key and
 checked it was absent would pass against a schema that had a field for keys and happened to be empty;
@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable
 from fastapi.testclient import TestClient
 
 from agent_service.api.app import create_app
-from agent_service.api.ui_routes import (
+from agent_service.api.client_routes import (
     ProviderSelectionError,
     ProviderStatus,
 )
@@ -105,7 +105,7 @@ def test_an_unwired_listing_answers_501_rather_than_500() -> None:
 
 
 def test_selecting_a_provider_passes_it_through_and_reports_the_result() -> None:
-    """The model id reaches the handler and comes back in the response the page redraws from."""
+    """The model id reaches the handler and comes back in the response the client redraws from."""
     seen: list[tuple[str, str]] = []
 
     async def choose(provider: str, model_id: str) -> ProviderStatus:
@@ -175,9 +175,9 @@ def test_a_malformed_selection_body_is_refused_before_the_handler_runs() -> None
 def test_the_header_follows_the_live_selection_not_the_startup_setting() -> None:
     """The defect this ordering fixes, stated as a test.
 
-    `/api/info` used to read `app.state.settings`, so after a provider was changed on the page the
-    chip kept naming the one the process *started* with — a header that contradicts the agent is
-    worse than no header.
+    `/api/info` used to read `app.state.settings`, so after a provider was changed in the client the
+    reported provider kept naming the one the process *started* with — a header that contradicts the
+    agent is worse than no header.
     """
     client = _client(
         describe=_describe_live,
@@ -192,7 +192,7 @@ def test_the_header_follows_the_live_selection_not_the_startup_setting() -> None
 
 
 def test_without_a_control_the_header_still_answers_from_settings() -> None:
-    """A build with no registry must render a page and a chip rather than a 500."""
+    """A build with no registry must still say which model is in force rather than answering 500."""
     client = _client(settings=_settings(agent_model_provider="scripted"))
 
     body = client.get("/api/info").json()
@@ -223,7 +223,8 @@ def test_the_status_shape_has_nowhere_to_put_a_credential() -> None:
     """Asserted rather than assumed, because the picker is the one endpoint a key could reach.
 
     A field for a key would be filled by whatever the wiring layer had to hand; the absence of the
-    field is what makes that impossible rather than merely unlikely.
+    field is what makes that impossible rather than merely unlikely. The field set is also the whole
+    reason this JSON is safe to hand a browser: there is nowhere in it for a credential to sit.
     """
     fields = set(ProviderStatus.model_fields)
 

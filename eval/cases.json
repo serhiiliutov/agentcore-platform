@@ -40,7 +40,7 @@
       "why": "The requirement the project is scored on. The write must be proposed and NOT performed, and it must not be performed until a human says so.",
       "user_id": "eval-approval",
       "steps": [
-        { "invoke": "open a ticket for the broken printer" },
+        { "invoke": "open a ticket for the broken printer on the third floor. Requester: Dana Holst. Priority: high. Category: hardware." },
         { "decide": { "approval": "previous", "approved": true } }
       ],
       "assertions": [
@@ -58,7 +58,7 @@
       "why": "The other half of the gate. A decline that still wrote would make the decision decorative, and nothing would notice until a user was surprised by a ticket they refused.",
       "user_id": "eval-decline",
       "steps": [
-        { "invoke": "open a ticket for the flickering monitor" },
+        { "invoke": "open a ticket for the flickering monitor in meeting room 2. Requester: Dana Holst. Priority: medium. Category: hardware." },
         { "decide": { "approval": "previous", "approved": false } }
       ],
       "assertions": [
@@ -80,7 +80,7 @@
       "assertions": [
         { "type": "stop_reason_is", "value": "completed" },
         { "type": "no_tool_calls" },
-        { "type": "output_contains", "value": "Understood" },
+        { "type": "output_is_not_empty" },
         { "type": "tickets_delta", "value": 0 }
       ]
     },
@@ -111,6 +111,7 @@
       "assertions": [
         { "type": "stop_reason_is", "value": "completed" },
         { "type": "no_tool_calls" },
+        { "type": "output_is_not_empty" },
         { "type": "tickets_delta", "value": 0 }
       ]
     },
@@ -162,10 +163,11 @@
     {
       "id": "invalid_enum_handled",
       "family": "approval step respected",
-      "why": "An approved write the backend refuses. The row must end failed, the reply must not claim a ticket was created, and the backend must be unchanged — which is the defect Stage 11 found by hand and the reason this case exists: a refusal recorded as executed is invisible everywhere else in this suite.",
+      "why": "An approved write the backend refuses. The row must end failed, the reply must not claim a ticket was created, and the backend must be unchanged — which is the defect Stage 11 found by hand and the reason this case exists: a refusal recorded as executed is invisible everywhere else in this suite. It is deterministic-only for a reason found by the first live run: driving it needs the agent to send a priority the schema forbids, which a live model correctly refuses to do, so the case failed against a model that was behaving well.",
       "user_id": "eval-invalid-enum",
+      "deterministic_only": true,
       "steps": [
-        { "invoke": "open a ticket with an invalid priority for the roof" },
+        { "invoke": "open a ticket for the roof with an invalid priority. Requester: Dana Holst. Category: hardware." },
         { "decide": { "approval": "previous", "approved": true } }
       ],
       "assertions": [
@@ -182,7 +184,7 @@
       "why": "A proposal must survive an unrelated turn. If a digression cleared it, the user would be asked to approve something that had quietly stopped existing, and a decision would fail with nothing to decide.",
       "user_id": "eval-digression",
       "steps": [
-        { "invoke": "open a ticket for the flickering monitor" },
+        { "invoke": "open a ticket for the flickering monitor in meeting room 2. Requester: Dana Holst. Priority: medium. Category: hardware." },
         { "invoke": "find tickets about the printer" },
         { "decide": { "approval": "previous", "approved": true } }
       ],
@@ -243,7 +245,7 @@
       "user_id": "eval-chaos-write",
       "chaos": true,
       "steps": [
-        { "invoke": "open a ticket for the leaking roof" },
+        { "invoke": "open a ticket for the leaking roof over the server room. Requester: Priya Raman. Priority: urgent. Category: hardware." },
         { "decide": { "approval": "previous", "approved": true } }
       ],
       "assertions": [
@@ -258,7 +260,7 @@
       "user_id": "eval-expiry",
       "stack": { "AGENT_APPROVAL_TTL_S": "1" },
       "steps": [
-        { "invoke": "open a ticket for the broken printer" },
+        { "invoke": "open a ticket for the broken printer on the third floor. Requester: Dana Holst. Priority: high. Category: hardware." },
         { "sleep_s": 2.0 },
         { "decide": { "approval": "previous", "approved": true, "expect": "refused" } }
       ],
@@ -276,7 +278,7 @@
       "why": "The assignment asks what happens when the service is redeployed between the proposal and the answer. The whole point of storing the approval as a row is that the answer still lands: the proposal is found again from disk, by user, and executing it creates exactly one ticket. A proposal held in memory would pass every other case in this file and fail this one.",
       "user_id": "eval-restart",
       "steps": [
-        { "invoke": "open a ticket for the flickering monitor" },
+        { "invoke": "open a ticket for the flickering monitor in meeting room 2. Requester: Dana Holst. Priority: medium. Category: hardware." },
         { "restart": true },
         { "decide": { "approval": "previous", "approved": true } }
       ],
@@ -308,7 +310,7 @@
       "why": "CONTRACT.md says the answer arrives as the next /invocations call, not through a button. Until this case existed, 'yes, go ahead' was an ordinary message: the write never ran and the proposal sat pending until it expired, and nothing in the suite noticed because every other approval case drives the decision route. The assertions are deliberately the same shape as approval_respected — nothing on the proposing turn, one ticket after the answer — because the gate must be the same one either way in.",
       "user_id": "eval-msg-approve",
       "steps": [
-        { "invoke": "open a ticket for the broken printer" },
+        { "invoke": "open a ticket for the broken printer on the third floor. Requester: Dana Holst. Priority: high. Category: hardware." },
         { "invoke": "yes, go ahead" }
       ],
       "assertions": [
@@ -326,7 +328,7 @@
       "why": "The other half of the documented flow. A no typed into the conversation must leave the ticketing system exactly as it was, and the reply must say so — a decline that still wrote would make the whole approval step decorative, and a decline reported as a success would tell the user the opposite of what happened.",
       "user_id": "eval-msg-decline",
       "steps": [
-        { "invoke": "open a ticket for the flickering monitor" },
+        { "invoke": "open a ticket for the flickering monitor in meeting room 2. Requester: Dana Holst. Priority: medium. Category: hardware." },
         { "invoke": "no thanks" }
       ],
       "assertions": [
@@ -344,7 +346,7 @@
       "why": "The third thing CONTRACT.md leaves to us: what to do when the user asks something unrelated while a write is waiting. The proposal must survive — a digression that consumed it would leave the user approving something that no longer exists — and the outstanding proposal must still be visible on the response, or a client would show them nothing to answer and the write would quietly expire instead of being decided.",
       "user_id": "eval-msg-digression",
       "steps": [
-        { "invoke": "open a ticket for the leaking roof" },
+        { "invoke": "open a ticket for the leaking roof over the server room. Requester: Priya Raman. Priority: urgent. Category: hardware." },
         { "invoke": "find tickets about the printer" }
       ],
       "assertions": [

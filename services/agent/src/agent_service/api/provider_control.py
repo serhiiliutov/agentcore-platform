@@ -1,7 +1,7 @@
 """The picker's two handlers: report the selection, and adopt a new one — durably.
 
 This is the seam between `providers/registry.py`, which knows how to build and swap a provider, and
-`api/ui_routes.py`, which knows the HTTP shape but must not know a database exists. It is the same
+`api/client_routes.py`, which knows the HTTP shape but must not know a database exists. It is the same
 seam `build_pending_listing` occupies for approvals, and it exists for the same reason: the route
 module stays testable with a fake handler, and the wiring lives where the wiring can be read.
 
@@ -13,7 +13,7 @@ first would risk the opposite.
 **A failed selection leaves everything as it was.** The registry builds the candidate before
 adopting it, and this only writes the row once that has succeeded — so a provider with no key is
 refused with a message, the running provider keeps answering, and the stored row still describes
-what is actually in force. That property is worth the ordering: it is what lets the page offer a
+what is actually in force. That property is worth the ordering: it is what lets a client offer a
 list of providers including ones that might not work, without a mis-click disabling the service.
 
 **The listing is best-effort; the selection is not.** `describe` asks the provider for its model
@@ -37,11 +37,11 @@ from agent_service.db.repositories.provider_settings import ProviderSettingsRepo
 from agent_service.providers.base import ProviderNotConfiguredError
 from agent_service.providers.registry import ProviderRegistry, ProviderSelection, is_deterministic
 
-from .ui_routes import ProviderSelectionError, ProviderStatus
+from .client_routes import ProviderSelectionError, ProviderStatus
 
 logger = logging.getLogger(__name__)
 
-#: What the page shows beside the chip, in each case. Wording lives here rather than in the route
+#: What a client shows beside the chip, in each case. Wording lives here rather than in the route
 #: module because the wired service is described by the wiring — the route's own copy is only for
 #: the unwired build, where there is no registry to ask.
 _DETERMINISTIC_DETAIL = (
@@ -51,7 +51,7 @@ _DETERMINISTIC_DETAIL = (
 
 _LIVE_DETAIL = (
     "A model chooses the tools and writes the reply. The choice is stored and survives a restart; "
-    "the credential comes from the environment and is never sent to the page."
+    "the credential comes from the environment and is never sent to a client."
 )
 
 #: The provider names this service understands, from the Literal itself rather than from a second
@@ -145,7 +145,7 @@ class ProviderControl:
             ProviderSettingsRepository(session).store(
                 provider=selection.provider,
                 model_id=selection.model_id,
-                note="selected from the web page",
+                note="selected in the chat",
             )
             session.commit()
 

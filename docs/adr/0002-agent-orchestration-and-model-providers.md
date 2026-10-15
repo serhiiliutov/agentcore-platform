@@ -72,11 +72,14 @@ Credentials are read from the environment. The web UI may **select** among the
 providers that are already configured, and it is told only whether each is
 configured — never a key, never a prefix, never a fingerprint.
 
-An opt-in development mode (`ALLOW_RUNTIME_KEY_ENTRY=1`, off by default) lets the
-UI submit a key. In that mode the key lives in process memory, is never written to
-the database, never logged, never placed in a trace span and never returned by any
-endpoint, and it is gone on restart. A test asserts each of those, rather than
-trusting the intent.
+A development mode where the UI could submit a key was **designed and removed rather
+than built** — and the flow that made it look possible (`ALLOW_RUNTIME_KEY_ENTRY`) has
+since been deleted from the settings, the compose file and the template along with the
+page it belonged to, so no endpoint accepts a key and no variable claims otherwise. The
+decision recorded here is the one that stands: a credential comes from the environment
+or it does not exist, and a front end is told which providers are configured and nothing
+about what they are configured *with*. See README section j for why the removal, rather
+than a "reserved" label, is the change that was made.
 
 ### 4. Local models
 

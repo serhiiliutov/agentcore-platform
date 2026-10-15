@@ -1,6 +1,6 @@
 # Eval results
 
-**All 22 case(s) passed** in 40.3s.
+**All 22 case(s) passed** in 44.3s on `scripted` — no model called, so this is a claim about the orchestration.
 
 | Case | Family | Result | Checks |
 | --- | --- | --- | --- |
@@ -10,7 +10,7 @@
 | `approval_declined_writes_nothing` | approval step respected | **pass** | 5/5 |
 | `out_of_scope_refused` | out-of-scope request refused | **pass** | 4/4 |
 | `failures_switch_on` | a run with failures switched on | **pass** | 4/4 |
-| `first_contact` | out-of-scope request refused | **pass** | 3/3 |
+| `first_contact` | out-of-scope request refused | **pass** | 4/4 |
 | `noise_then_search` | right tool chosen | **pass** | 3/3 |
 | `pagination_page_two` | right tool chosen | **pass** | 4/4 |
 | `not_found_clarification` | a run with failures switched on | **pass** | 4/4 |
@@ -37,9 +37,9 @@ None.
 - `right_tool_read` — `stop_reason_is`, `tool_called`, `tool_argument_is`, `tool_not_called`, `tickets_delta`
 - `approval_respected` — `stop_reason_is`, `approval_pending`, `tool_not_executed`, `tickets_delta_before_decision`, `decision_outcome_is`, `tickets_delta`
 - `approval_declined_writes_nothing` — `stop_reason_is`, `approval_pending`, `tool_not_executed`, `decision_outcome_is`, `tickets_delta`
-- `out_of_scope_refused` — `stop_reason_is`, `no_tool_calls`, `output_contains`, `tickets_delta`
+- `out_of_scope_refused` — `stop_reason_is`, `no_tool_calls`, `output_is_not_empty`, `tickets_delta`
 - `failures_switch_on` — `stop_reason_is`, `tool_error`, `tool_not_called`, `tickets_delta`
-- `first_contact` — `stop_reason_is`, `no_tool_calls`, `tickets_delta`
+- `first_contact` — `stop_reason_is`, `no_tool_calls`, `output_is_not_empty`, `tickets_delta`
 - `noise_then_search` — `stop_reason_is`, `tool_called`, `tickets_delta`
 - `pagination_page_two` — `stop_reason_is`, `tool_called`, `tool_argument_is`, `tickets_delta`
 - `not_found_clarification` — `stop_reason_is`, `tool_called`, `tool_error`, `tickets_delta`

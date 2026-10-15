@@ -23,16 +23,16 @@ finished — which cannot normally happen, and is exactly the kind of impossibil
 confusing ``AttributeError`` when it quietly stops being true.
 
 **There is one decision implementation, and two ways in.** A write is approved either by the
-decision route — the page's button — or by the user's next message, which is how `CONTRACT.md`
-says the platform does it. Both call the same callable built here; they differ only in whose
-database session it runs in. Building it twice is how a service ends up with a documented flow and
+decision route — the chat's Approve button — or by the user's next message, which is how
+`CONTRACT.md` says the platform does it. Both call the same callable built here; they differ only
+in whose database session it runs in. Building it twice is how a service ends up with a documented flow and
 an undocumented one that behave differently, with only one of them tested.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,22 +58,23 @@ from agent_service.api.approval_routes import (
     DecisionHandler,
 )
 from agent_service.api.cancel_routes import CancelHandler, CancelResult
-from agent_service.api.models import InvocationRequest, InvocationResponse, PendingApproval
-from agent_service.api.provider_control import ProviderControl
-from agent_service.api.ui_routes import (
+from agent_service.api.client_routes import (
     PendingApprovalListing,
     SessionListing,
     SessionSummary,
     TranscriptMessage,
     TranscriptReader,
 )
+from agent_service.api.models import InvocationRequest, InvocationResponse, PendingApproval
+from agent_service.api.provider_control import ProviderControl
 from agent_service.config import Settings, get_settings
 from agent_service.db.base import create_session_factory, register_sqlite_pragmas
 from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.db.repositories.sessions import SessionRepository
 from agent_service.db.repositories.traces import TraceRepository
 from agent_service.mcp.client import TicketingMcpClient, ToolCallResult
-from agent_service.observability import EXECUTION, Tracer
+from agent_service.observability import EXECUTION, RunExport, Tracer
+from agent_service.observability.otlp import OtlpExporter
 from agent_service.providers.registry import ProviderRegistry
 from agent_service.tools.registry import ToolRegistry
 
@@ -266,6 +267,7 @@ def build_invocation_handler(
     settings: Settings,
     runs: InflightRegistry,
     decide: DecisionApplier,
+    export_trace: Callable[[RunExport], Awaitable[bool]] | None = None,
 ) -> InvocationHandler:
     """Adapt the loop factory into the one-argument handler the route expects.
 
@@ -294,7 +296,7 @@ def build_invocation_handler(
     async def handle(request: InvocationRequest) -> InvocationResponse:
         factory = InvocationHandlerFactory(
             # Resolved per request, not captured at construction. This is what makes a provider
-            # chosen on the page apply to the next turn: the handler factory reads the registry
+            # chosen in the chat apply to the next turn: the handler factory reads the registry
             # when it is built, and the registry is swapped in place by the selection route. Read
             # once here rather than inside the loop, so every model turn of *this* invocation uses
             # the same provider and a mid-turn switch cannot produce a transcript written by two
@@ -321,6 +323,10 @@ def build_invocation_handler(
             # route uses, handed the turn's own session, so the decision commits with the turn
             # rather than in a second transaction against the same SQLite file.
             decide=decide,
+            # The collector, when one is configured, as the bound method rather than the exporter:
+            # the agent layer knows only "a callable that takes a finished run", so OTLP stays on
+            # the observability side of the seam.
+            export_trace=export_trace,
         )
         with sessions() as session:
             response = await factory(request, session)
@@ -435,9 +441,9 @@ def build_pending_listing(
     *,
     sessions: sessionmaker[Session],
 ) -> PendingApprovalListing:
-    """The listing the page fetches on load.
+    """The listing a client fetches when it opens.
 
-    Scoped by user and by nothing else, which is the whole point: the page does not know which
+    Scoped by user and by nothing else, which is the whole point: a client does not know which
     session an outstanding proposal belongs to, and the requirement is that a proposal survives a
     restart — so "what is waiting for me" has to be answerable without one.
 
@@ -608,6 +614,18 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     # a button and a sentence cannot diverge in what they allow, record or trace. See
     # `build_decision_callable`.
     decide = build_decision_callable(runtime=runtime, settings=resolved)
+    # Built once, from the settings, and empty by default: with no `OTEL_EXPORTER_OTLP_ENDPOINT`
+    # nothing here posts anything and no collector is needed, which is what keeps a bare
+    # `docker compose up` a local stack. See `observability/otlp.py` for the mapping, for what an
+    # SDK-based exporter would add, and for the two-line way to point this at Jaeger.
+    export_trace = (
+        OtlpExporter(
+            endpoint=resolved.otel_exporter_otlp_endpoint,
+            service_name=resolved.otel_service_name,
+        ).export
+        if resolved.otel_exporter_otlp_endpoint
+        else None
+    )
 
     app = create_app(
         resolved,
@@ -618,6 +636,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             settings=resolved,
             runs=runs,
             decide=decide,
+            export_trace=export_trace,
         ),
         decision_handler=build_decision_handler(decide=decide, sessions=sessions),
         pending_approvals=build_pending_listing(sessions=sessions),
@@ -626,7 +645,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         session_listing=build_session_listing(sessions=sessions),
         transcript_reader=build_transcript_reader(sessions=sessions),
         cancel_handler=build_cancel_handler(runs=runs),
-        # The page's provider picker, reading and writing the same registry the loop uses, so a
+        # The chat's provider picker, reading and writing the same registry the loop uses, so a
         # chip that names a model and a turn that uses one cannot disagree.
         describe_providers=control.describe,
         choose_provider=control.choose,

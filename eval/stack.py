@@ -184,7 +184,8 @@ class Stack:
     database_url: str
     #: The agent's environment, kept so a restart brings it back exactly as it went down. Without
     #: it, a restart would silently drop to the defaults and a case that set a tighter budget
-    #: would come back with the looser one.
+    #: would come back with the looser one. It includes the run's provider, so a restart cannot
+    #: quietly fall back to `scripted` half-way through a live run.
     env: dict[str, str]
     _servers: list[tuple[uvicorn.Server, threading.Thread]]
     #: The agent alone, so it can be stopped and rebuilt without touching the mock.
@@ -218,7 +219,7 @@ class Stack:
         tolerate: Collection[int] = (),
         timeout_s: float = _REQUEST_TIMEOUT_S,
     ) -> dict[str, Any]:
-        """Approve or decline a proposal, through the route the page uses.
+        """Approve or decline a proposal, through the route the chat uses.
 
         ``tolerate`` names status codes that are an *expected* answer rather than a fault, and a
         tolerated response comes back as a payload carrying ``status`` instead of raising. One case
@@ -384,7 +385,11 @@ def _build_agent_app(env: Mapping[str, str]) -> Any:
     return build_app()
 
 
-def start_stack(*, overrides: Mapping[str, str] | None = None) -> Stack:
+def start_stack(
+    *,
+    overrides: Mapping[str, str] | None = None,
+    extra_env: Mapping[str, str] | None = None,
+) -> Stack:
     """Bring up the mock and the agent, and wait for both to answer.
 
     The order matters: the agent's lifespan connects to the ticketing MCP server, which talks to
@@ -396,6 +401,15 @@ def start_stack(*, overrides: Mapping[str, str] | None = None) -> Stack:
     because they cannot be: both of the settings a case has needed so far are read when the
     application is built. A case that needs one therefore gets a stack of its own, which the
     runner starts and stops around it.
+
+    ``extra_env`` is the *run's* environment rather than a case's — in practice the model provider
+    and, for a live one, its credential. It is separate from ``overrides`` because the two are
+    deliberately not the same thing. A case's overrides are limited to the settings a case may
+    vary, for the reason recorded at that constant: a value one case could set would leak into the
+    case after it, and whether a case passed would depend on its position in the file. The provider
+    must instead reach *every* stack in the run, including the ones a case brings up for itself —
+    otherwise a run against a live model would quietly serve its process-configuration cases with
+    `scripted`, and the report would claim a model for cases that never touched one.
     """
     if not (AGENT_DIR / "pyproject.toml").is_file():
         raise StackError(f"the agent service is not at {AGENT_DIR}")
@@ -416,9 +430,8 @@ def start_stack(*, overrides: Mapping[str, str] | None = None) -> Stack:
     database_url = f"sqlite+pysqlite:///{work_dir / 'eval.sqlite3'}"
     _migrate(database_url)
 
-    # The agent's environment: its own settings, the two the MCP subprocess inherits for the
-    # mock's address, and whatever this case asked to vary. The provider is left at its default —
-    # `scripted` — which is what makes a case reproducible.
+    # The agent's environment: its own settings, the values the MCP subprocess inherits for the
+    # mock's address, whatever this case asked to vary, and the run's provider last.
     #
     # The ledger path is the run's own file. The ticketing server's idempotency ledger is a SQLite
     # file whose default path is relative — so by default it outlives the mock, which is in memory
@@ -435,6 +448,9 @@ def start_stack(*, overrides: Mapping[str, str] | None = None) -> Stack:
         "TICKETING_API_KEY": API_KEY,
         "TICKETING_LEDGER_PATH": str(work_dir / "ticketing-idempotency.sqlite3"),
         **case_env,
+        # Last, so the run's provider and its credential cannot be displaced by a case override or
+        # by a value the developer happens to have exported in their shell.
+        **dict(extra_env or {}),
     }
 
     if str(AGENT_DIR / "src") not in sys.path:

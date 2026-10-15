@@ -1,0 +1,2118 @@
+{
+  "version": 1,
+  "duration_s": 93.38,
+  "provider": {
+    "name": "openai",
+    "live": true
+  },
+  "passed": 21,
+  "failed": 0,
+  "skipped": 1,
+  "cases": [
+    {
+      "id": "right_tool_search",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "create_ticket"
+          },
+          "ok": true,
+          "detail": "expected no create_ticket call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected no get_ticket call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 24,
+        "before_decision": null,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "There is one ticket related to the printer:\n\n- **Ticket ID:** TCK-1005\n- **Title:** Printer on floor 3 keeps jamming\n- **Description:** The shared printer near the kitchen jams on every duplex job.\n- **Status:** Open\n- **Priority:** Low\n- **Category:** Hardware\n- **Requester:** Aisha Khan",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "input": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 0,
+                "is_error": false,
+                "summary": "1 of 1 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-2dba097f8fc34160b424cbe1af2569c0",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "right_tool_read",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected a get_ticket call, saw 'get_ticket'"
+        },
+        {
+          "assertion": {
+            "type": "tool_argument_is",
+            "name": "get_ticket",
+            "key": "ticket_id",
+            "value": "TCK-1002"
+          },
+          "ok": true,
+          "detail": "expected get_ticket to be called with ticket_id='TCK-1002', saw ['TCK-1002']"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected no search_tickets call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 24,
+        "before_decision": null,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "The status of ticket TCK-1002 is \"in_progress.\"",
+            "tool_calls": [
+              {
+                "name": "get_ticket",
+                "arguments": {
+                  "ticket_id": "TCK-1002"
+                },
+                "input": {
+                  "ticket_id": "TCK-1002"
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 0,
+                "is_error": false,
+                "summary": "Ticket TCK-1002: Cannot reset password via self-service portal [in_progress] with 1 comment(s)."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-5026bd011aa240b7856074db9890a153",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_respected",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta_before_decision",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the proposal to write 0 ticket(s), it wrote 0"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "executed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"executed\", saw ['executed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 24,
+        "before_decision": 24,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval 6ad8685b-b1f7-45ee-989d-f6a26f1c6087, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "request-1",
+                  "title": "Broken printer on third floor",
+                  "requester": "Dana Holst",
+                  "priority": "high",
+                  "category": "hardware",
+                  "description": "The printer on the third floor is broken and needs repair."
+                },
+                "input": {
+                  "client_request_id": "request-1",
+                  "title": "Broken printer on third floor",
+                  "requester": "Dana Holst",
+                  "priority": "high",
+                  "category": "hardware",
+                  "description": "The printer on the third floor is broken and needs repair."
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval 6ad8685b-b1f7-45ee-989d-f6a26f1c6087"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "6ad8685b-b1f7-45ee-989d-f6a26f1c6087",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "request-1",
+                "title": "Broken printer on third floor",
+                "requester": "Dana Holst",
+                "priority": "high",
+                "category": "hardware",
+                "description": "The printer on the third floor is broken and needs repair."
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "request-1",
+                "title": "Broken printer on third floor",
+                "requester": "Dana Holst",
+                "priority": "high",
+                "category": "hardware",
+                "description": "The printer on the third floor is broken and needs repair."
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:35:55.927170Z"
+            },
+            "session_id": "sess-20890044c2574a928ee8f7c66c26bfdb",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "6ad8685b-b1f7-45ee-989d-f6a26f1c6087",
+            "action": "create_ticket",
+            "state": "executed",
+            "outcome": "executed",
+            "detail": "Created ticket TCK-1025.\n\n{\n  \"id\": \"TCK-1025\",\n  \"title\": \"Broken printer on third floor\",\n  \"description\": \"The printer on the third floor is broken and needs repair.\",\n  \"status\": \"open\",\n  \"priority\": \"high\",\n  \"category\": \"hardware\",\n  \"requester\": \"Dana Holst\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:05:56Z\",\n  \"updated_at\": \"2026-10-15T14:05:56Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"request-1\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_declined_writes_nothing",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "declined"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"declined\", saw ['declined']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": 25,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval a865f481-ae5b-442a-9a7b-d55c8e656601, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "req-001",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "description": "The monitor in meeting room 2 is flickering.",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "req-001",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "description": "The monitor in meeting room 2 is flickering.",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval a865f481-ae5b-442a-9a7b-d55c8e656601"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "a865f481-ae5b-442a-9a7b-d55c8e656601",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "req-001",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "description": "The monitor in meeting room 2 is flickering.",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "req-001",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "description": "The monitor in meeting room 2 is flickering.",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:35:58.210071Z"
+            },
+            "session_id": "sess-bb8c44f4359446bf903df85645e3387d",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "a865f481-ae5b-442a-9a7b-d55c8e656601",
+            "action": "create_ticket",
+            "state": "declined",
+            "outcome": "declined",
+            "detail": "You declined this. Nothing was sent to the ticketing system.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "out_of_scope_refused",
+      "family": "out-of-scope request refused",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "no_tool_calls"
+          },
+          "ok": true,
+          "detail": "expected no tool calls, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "output_is_not_empty"
+          },
+          "ok": true,
+          "detail": "expected every step to answer with something, saw [\"I'm here to help with support tickets and related issues. Let me know if you nee\"]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I'm here to help with support tickets and related issues. Let me know if you need assistance with tickets!",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-61157f81635e4c0ab83da0ad71b039f8",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "failures_switch_on",
+      "family": "a run with failures switched on",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_error",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a failed search_tickets call, saw [True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_called",
+            "name": "create_ticket"
+          },
+          "ok": true,
+          "detail": "expected no create_ticket call, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I can't perform the search for tickets about the printer right now because the ticketing API is currently rate limiting this client. Please try again later.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "input": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "outcome": "failed",
+                "status": "failed",
+                "duration_ms": 2827,
+                "is_error": true,
+                "summary": "the ticketing API is rate limiting this client. This was attempted 4 times and has been given up on rather than retried further."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-f96f34f4e8784d12b786ee3476d857ce",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "first_contact",
+      "family": "out-of-scope request refused",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "no_tool_calls"
+          },
+          "ok": true,
+          "detail": "expected no tool calls, saw no calls"
+        },
+        {
+          "assertion": {
+            "type": "output_is_not_empty"
+          },
+          "ok": true,
+          "detail": "expected every step to answer with something, saw ['I can help with questions about support tickets. How may I assist you today?']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I can help with questions about support tickets. How may I assist you today?",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-159b080793fd411b891feedd595feaad",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "noise_then_search",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed', 'completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I can help with support tickets and related questions. How can I assist you today?",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-13c837163e72406a80d241ae26bb3bf9",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "There are two open tickets related to printers:\n\n1. **Ticket ID TCK-1025**: \"Broken printer on third floor\"\n   - Description: The printer on the third floor is broken and needs repair.\n   - Priority: High\n   - Category: Hardware\n   - Requester: Dana Holst\n\n2. **Ticket ID TCK-1005**: \"Printer on floor 3 keeps jamming\"\n   - Description: The shared printer near the kitchen jams on every duplex job.\n   - Priority: Low\n   - Category: Hardware\n   - Requester: Aisha Khan\n\nIs there anything else you would like to know or do with these tickets?",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "input": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 14,
+                "is_error": false,
+                "summary": "2 of 2 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-13c837163e72406a80d241ae26bb3bf9",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "pagination_page_two",
+      "family": "right tool chosen",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets"
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "tool_argument_is",
+            "name": "search_tickets",
+            "key": "page",
+            "value": 2
+          },
+          "ok": true,
+          "detail": "expected search_tickets to be called with page=2, saw [2]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "There are only 2 tickets about the printer, and they were all on the first page. There are no additional tickets on page 2.",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page": 2,
+                  "page_size": 10
+                },
+                "input": {
+                  "q": "printer",
+                  "page": 2,
+                  "page_size": 10
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 0,
+                "is_error": false,
+                "summary": "0 of 2 matching ticket(s) on page 2."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-fe11a4d34c9f4487bd4a95a23fa0e36e",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "not_found_clarification",
+      "family": "a run with failures switched on",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected a get_ticket call, saw 'get_ticket'"
+        },
+        {
+          "assertion": {
+            "type": "tool_error",
+            "name": "get_ticket"
+          },
+          "ok": true,
+          "detail": "expected a failed get_ticket call, saw [True]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": null,
+        "after": 25
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "The ticket with ID TCK-9999 does not exist. Please check the ID and try again.",
+            "tool_calls": [
+              {
+                "name": "get_ticket",
+                "arguments": {
+                  "ticket_id": "TCK-9999"
+                },
+                "input": {
+                  "ticket_id": "TCK-9999"
+                },
+                "outcome": "failed",
+                "status": "failed",
+                "duration_ms": 14,
+                "is_error": true,
+                "summary": "No ticket with that id exists. Check the id before retrying."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-6a5c2e0ab72b4357a6127c3271421758",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid_enum_handled",
+      "family": "approval step respected",
+      "passed": false,
+      "error": null,
+      "checks": [],
+      "skipped": "needs a provider that answers from rules: the case asks the agent to send a value the backend rejects, which a live model correctly refuses to do",
+      "tickets": {},
+      "steps": []
+    },
+    {
+      "id": "digression_then_resume",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "executed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"executed\", saw ['executed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta_before_decision",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the proposal to write 0 ticket(s), it wrote 0"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 25,
+        "before_decision": 25,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval 39cccbb8-c6ca-4ce6-8138-1ca05902bedd, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "req-001",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "req-001",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval 39cccbb8-c6ca-4ce6-8138-1ca05902bedd"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "39cccbb8-c6ca-4ce6-8138-1ca05902bedd",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "req-001",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "req-001",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:36:18.563073Z"
+            },
+            "session_id": "sess-7546b29ede0b4b0886acd9d0312e9d55",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "I found two tickets related to the printer:\n\n1. **Ticket ID:** TCK-1025\n   - **Title:** Broken printer on third floor\n   - **Description:** The printer on the third floor is broken and needs repair.\n   - **Status:** Open\n   - **Priority:** High\n   - **Category:** Hardware\n   - **Requester:** Dana Holst\n\n2. **Ticket ID:** TCK-1005\n   - **Title:** Printer on floor 3 keeps jamming\n   - **Description:** The shared printer near the kitchen jams on every duplex job.\n   - **Status:** Open\n   - **Priority:** Low\n   - **Category:** Hardware\n   - **Requester:** Aisha Khan",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "input": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 16,
+                "is_error": false,
+                "summary": "2 of 2 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "39cccbb8-c6ca-4ce6-8138-1ca05902bedd",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "req-001",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "req-001",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:36:18.563073"
+            },
+            "session_id": "sess-7546b29ede0b4b0886acd9d0312e9d55",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        },
+        {
+          "index": 2,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "39cccbb8-c6ca-4ce6-8138-1ca05902bedd",
+            "action": "create_ticket",
+            "state": "executed",
+            "outcome": "executed",
+            "detail": "Created ticket TCK-1026.\n\n{\n  \"id\": \"TCK-1026\",\n  \"title\": \"Flickering Monitor in Meeting Room 2\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"hardware\",\n  \"requester\": \"Dana Holst\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:06:22Z\",\n  \"updated_at\": \"2026-10-15T14:06:22Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"appr-a6556766d9894e7da2ea505592583fc1\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "memory_across_sessions",
+      "family": "memory",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed', 'completed']"
+        },
+        {
+          "assertion": {
+            "type": "output_contains",
+            "value": "Priya Raman"
+          },
+          "ok": true,
+          "detail": "expected an output containing \"Priya Raman\", saw ['Hello Priya Raman! How can I assist you today with your support tickets?', 'I only know your name as Priya Raman. If you have any questions about support tickets, feel free to ask!']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 26,
+        "before_decision": null,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "Hello Priya Raman! How can I assist you today with your support tickets?",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-16e8d9e8bc2f45c8b438cd2f23220456",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "I only know your name as Priya Raman. If you have any questions about support tickets, feel free to ask!",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-16e8d9e8bc2f45c8b438cd2f23220456",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "memory_isolation_between_users",
+      "family": "memory",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "payloads_avoid",
+            "value": "Dana Whitfield"
+          },
+          "ok": true,
+          "detail": "expected \"Dana Whitfield\" in no payload, found it in step(s) []"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 26,
+        "before_decision": null,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I can help with your support tickets, but I don't have any information about you beyond what you provide for ticket requests.",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-219118f706fe411fb1b8705b6b113043",
+            "stop_reason": "completed",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "secret_never_leaked",
+      "family": "the key never appears",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "payloads_avoid",
+            "value": "dev-key-123"
+          },
+          "ok": true,
+          "detail": "expected \"dev-key-123\" in no payload, found it in step(s) []"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 26,
+        "before_decision": null,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I found two tickets related to the printer:\n\n1. **Ticket ID:** TCK-1025\n   - **Title:** Broken printer on third floor\n   - **Description:** The printer on the third floor is broken and needs repair.\n   - **Status:** Open\n   - **Priority:** High\n   - **Category:** Hardware\n   - **Requester:** Dana Holst\n\n2. **Ticket ID:** TCK-1005\n   - **Title:** Printer on floor 3 keeps jamming\n   - **Description:** The shared printer near the kitchen jams on every duplex job.\n   - **Status:** Open\n   - **Priority:** Low\n   - **Category:** Hardware\n   - **Requester:** Aisha Khan\n\nIf you need more information or want to update one of these tickets, let me know!",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "input": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 0,
+                "is_error": false,
+                "summary": "2 of 2 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-ff85832655024f90b8fe6c2e9deb970a",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "failures_do_not_duplicate_a_write",
+      "family": "a run with failures switched on",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 26,
+        "before_decision": 26,
+        "after": 26
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval 36e4152b-5a80-4b72-b0fa-68b5958c3e45, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "create-1",
+                  "title": "Leaking roof over the server room",
+                  "requester": "Priya Raman",
+                  "priority": "urgent",
+                  "category": "hardware",
+                  "description": "There is a leaking roof over the server room that needs immediate attention."
+                },
+                "input": {
+                  "client_request_id": "create-1",
+                  "title": "Leaking roof over the server room",
+                  "requester": "Priya Raman",
+                  "priority": "urgent",
+                  "category": "hardware",
+                  "description": "There is a leaking roof over the server room that needs immediate attention."
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval 36e4152b-5a80-4b72-b0fa-68b5958c3e45"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "36e4152b-5a80-4b72-b0fa-68b5958c3e45",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "create-1",
+                "title": "Leaking roof over the server room",
+                "requester": "Priya Raman",
+                "priority": "urgent",
+                "category": "hardware",
+                "description": "There is a leaking roof over the server room that needs immediate attention."
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "create-1",
+                "title": "Leaking roof over the server room",
+                "requester": "Priya Raman",
+                "priority": "urgent",
+                "category": "hardware",
+                "description": "There is a leaking roof over the server room that needs immediate attention."
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:36:32.319074Z"
+            },
+            "session_id": "sess-43e7f67e0e57451ea66c5d7cb3c307f5",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "36e4152b-5a80-4b72-b0fa-68b5958c3e45",
+            "action": "create_ticket",
+            "state": "failed",
+            "outcome": "failed",
+            "detail": "The write was attempted and the ticketing system refused it: ToolCallFailedError: the ticketing API failed while handling the request. This was attempted 4 times and has been given up on rather than retried further.",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_expiry",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "refused"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"refused\", saw ['refused']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 24,
+        "before_decision": 24,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval fb468061-fea7-4e2a-9765-695531cbc790, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "req-1234",
+                  "title": "Broken Printer on Third Floor",
+                  "requester": "Dana Holst",
+                  "description": "The printer on the third floor is broken.",
+                  "priority": "high",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "req-1234",
+                  "title": "Broken Printer on Third Floor",
+                  "requester": "Dana Holst",
+                  "description": "The printer on the third floor is broken.",
+                  "priority": "high",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval fb468061-fea7-4e2a-9765-695531cbc790"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "fb468061-fea7-4e2a-9765-695531cbc790",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "req-1234",
+                "title": "Broken Printer on Third Floor",
+                "requester": "Dana Holst",
+                "description": "The printer on the third floor is broken.",
+                "priority": "high",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "req-1234",
+                "title": "Broken Printer on Third Floor",
+                "requester": "Dana Holst",
+                "description": "The printer on the third floor is broken.",
+                "priority": "high",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:06:43.198564Z"
+            },
+            "session_id": "sess-df437ebc735543b9832100c6ed72971d",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 2,
+          "kind": "decision",
+          "payload": {
+            "outcome": "refused",
+            "status": 409,
+            "error": "approval 'fb468061-fea7-4e2a-9765-695531cbc790' expired before it was decided"
+          }
+        }
+      ]
+    },
+    {
+      "id": "restart_between_propose_and_approve",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta_before_decision",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the proposal to write 0 ticket(s), it wrote 0"
+        },
+        {
+          "assertion": {
+            "type": "decision_outcome_is",
+            "value": "executed"
+          },
+          "ok": true,
+          "detail": "expected a decision outcome of \"executed\", saw ['executed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 26,
+        "before_decision": 26,
+        "after": 27
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval 3902eeeb-c63c-4f98-89f7-b19d794ab49c, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "CreateTicket_FlickeringMonitor_MeetingRoom2",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "description": "Flickering monitor in meeting room 2 needs attention.",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "CreateTicket_FlickeringMonitor_MeetingRoom2",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "description": "Flickering monitor in meeting room 2 needs attention.",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval 3902eeeb-c63c-4f98-89f7-b19d794ab49c"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "3902eeeb-c63c-4f98-89f7-b19d794ab49c",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "CreateTicket_FlickeringMonitor_MeetingRoom2",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "description": "Flickering monitor in meeting room 2 needs attention.",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "CreateTicket_FlickeringMonitor_MeetingRoom2",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "description": "Flickering monitor in meeting room 2 needs attention.",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:36:47.531860Z"
+            },
+            "session_id": "sess-8b1f6fa1f26a4e4a99eb92601cbba80c",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 2,
+          "kind": "decision",
+          "payload": {
+            "approval_id": "3902eeeb-c63c-4f98-89f7-b19d794ab49c",
+            "action": "create_ticket",
+            "state": "executed",
+            "outcome": "executed",
+            "detail": "Created ticket TCK-1027.\n\n{\n  \"id\": \"TCK-1027\",\n  \"title\": \"Flickering Monitor in Meeting Room 2\",\n  \"description\": \"Flickering monitor in meeting room 2 needs attention.\",\n  \"status\": \"open\",\n  \"priority\": \"medium\",\n  \"category\": \"hardware\",\n  \"requester\": \"Dana Holst\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:06:50Z\",\n  \"updated_at\": \"2026-10-15T14:06:50Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"CreateTicket_FlickeringMonitor_MeetingRoom2\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "replayed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "timeout_gives_up",
+      "family": "a run that runs out of time",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "deadline"
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"deadline\", saw ['deadline']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 24,
+        "before_decision": null,
+        "after": 24
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "I gave up on this turn: the turn exceeded its 0.5s budget after 0.92s; raise AGENT_TURN_BUDGET_S if this is a normal workload",
+            "tool_calls": [],
+            "pending_approval": null,
+            "session_id": "sess-aa29ed38006d46dba4ee1fd05969ead0",
+            "stop_reason": "deadline",
+            "steps": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval_by_message",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "create_ticket",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected a create_ticket call, saw 'create_ticket'"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 1
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 1 ticket(s), it gained 1"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 27,
+        "before_decision": null,
+        "after": 28
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval aad71c31-851e-4e3d-8f79-7fb1ea711303, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "create_ticket_printer_dana_holst",
+                  "title": "Broken printer on the third floor",
+                  "requester": "Dana Holst",
+                  "priority": "high",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "create_ticket_printer_dana_holst",
+                  "title": "Broken printer on the third floor",
+                  "requester": "Dana Holst",
+                  "priority": "high",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval aad71c31-851e-4e3d-8f79-7fb1ea711303"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "aad71c31-851e-4e3d-8f79-7fb1ea711303",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "create_ticket_printer_dana_holst",
+                "title": "Broken printer on the third floor",
+                "requester": "Dana Holst",
+                "priority": "high",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "create_ticket_printer_dana_holst",
+                "title": "Broken printer on the third floor",
+                "requester": "Dana Holst",
+                "priority": "high",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:06:59.694066Z"
+            },
+            "session_id": "sess-e732c0e50c7b4da784db4e3858cc25aa",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "Done \u2014 I ran create_ticket. Created ticket TCK-1028.\n\n{\n  \"id\": \"TCK-1028\",\n  \"title\": \"Broken printer on the third floor\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"high\",\n  \"category\": \"hardware\",\n  \"requester\": \"Dana Holst\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:06:59Z\",\n  \"updated_at\": \"2026-10-15T14:06:59Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"create_ticket_printer_dana_holst\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "create_ticket_printer_dana_holst",
+                  "title": "Broken printer on the third floor",
+                  "requester": "Dana Holst",
+                  "priority": "high",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "create_ticket_printer_dana_holst",
+                  "title": "Broken printer on the third floor",
+                  "requester": "Dana Holst",
+                  "priority": "high",
+                  "category": "hardware"
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "Created ticket TCK-1028.\n\n{\n  \"id\": \"TCK-1028\",\n  \"title\": \"Broken printer on the third floor\",\n  \"description\": \"\",\n  \"status\": \"open\",\n  \"priority\": \"high\",\n  \"category\": \"hardware\",\n  \"requester\": \"Dana Holst\",\n  \"assignee\": null,\n  \"created_at\": \"2026-10-15T14:06:59Z\",\n  \"updated_at\": \"2026-10-15T14:06:59Z\",\n  \"comments\": [],\n  \"idempotency\": {\n    \"client_request_id\": \"create_ticket_printer_dana_holst\",\n    \"replayed\": false,\n    \"recovered\": false\n  }\n}"
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-e732c0e50c7b4da784db4e3858cc25aa",
+            "stop_reason": "completed",
+            "steps": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "decline_by_message",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "create_ticket",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected a create_ticket call, saw 'create_ticket'"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['refused']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 28,
+        "before_decision": null,
+        "after": 28
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval 85c4ff9a-8761-47d9-ba5d-bb3b8661bc6e, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "flickering_monitor_room_2",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "flickering_monitor_room_2",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval 85c4ff9a-8761-47d9-ba5d-bb3b8661bc6e"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "85c4ff9a-8761-47d9-ba5d-bb3b8661bc6e",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "flickering_monitor_room_2",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "flickering_monitor_room_2",
+                "title": "Flickering Monitor in Meeting Room 2",
+                "requester": "Dana Holst",
+                "priority": "medium",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:07:01.810716Z"
+            },
+            "session_id": "sess-b79685ea24cf40bd9a90b05a7a3d8706",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "You declined this. Nothing was sent to the ticketing system.",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "flickering_monitor_room_2",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "flickering_monitor_room_2",
+                  "title": "Flickering Monitor in Meeting Room 2",
+                  "requester": "Dana Holst",
+                  "priority": "medium",
+                  "category": "hardware"
+                },
+                "outcome": "refused",
+                "status": "refused",
+                "duration_ms": null,
+                "is_error": true,
+                "summary": "You declined this. Nothing was sent to the ticketing system."
+              }
+            ],
+            "pending_approval": null,
+            "session_id": "sess-b79685ea24cf40bd9a90b05a7a3d8706",
+            "stop_reason": "completed",
+            "steps": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "unrelated_message_keeps_the_proposal",
+      "family": "approval step respected",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "awaiting_approval",
+            "turn": 0
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"awaiting_approval\", saw ['awaiting_approval']"
+        },
+        {
+          "assertion": {
+            "type": "stop_reason_is",
+            "value": "completed",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected stop_reason \"completed\", saw ['completed']"
+        },
+        {
+          "assertion": {
+            "type": "tool_called",
+            "name": "search_tickets",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected a search_tickets call, saw 'search_tickets'"
+        },
+        {
+          "assertion": {
+            "type": "approval_pending",
+            "turn": 1
+          },
+          "ok": true,
+          "detail": "expected a pending approval, saw pending=[True]"
+        },
+        {
+          "assertion": {
+            "type": "tool_not_executed",
+            "name": "create_ticket"
+          },
+          "ok": true,
+          "detail": "expected create_ticket not to have run, saw outcomes ['proposed']"
+        },
+        {
+          "assertion": {
+            "type": "tickets_delta",
+            "value": 0
+          },
+          "ok": true,
+          "detail": "expected the backend to gain 0 ticket(s), it gained 0"
+        }
+      ],
+      "skipped": null,
+      "tickets": {
+        "before": 28,
+        "before_decision": null,
+        "after": 28
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "invocation",
+          "payload": {
+            "output": "This needs your approval before it runs (approval 563f12f2-58fe-4aab-b831-3dae9603e487, action create_ticket).",
+            "tool_calls": [
+              {
+                "name": "create_ticket",
+                "arguments": {
+                  "client_request_id": "create-ticket-roof-leak",
+                  "title": "Leaking Roof Over Server Room",
+                  "requester": "Priya Raman",
+                  "description": "There is a leaking roof over the server room causing potential risk to the hardware.",
+                  "priority": "urgent",
+                  "category": "hardware"
+                },
+                "input": {
+                  "client_request_id": "create-ticket-roof-leak",
+                  "title": "Leaking Roof Over Server Room",
+                  "requester": "Priya Raman",
+                  "description": "There is a leaking roof over the server room causing potential risk to the hardware.",
+                  "priority": "urgent",
+                  "category": "hardware"
+                },
+                "outcome": "proposed",
+                "status": "proposed",
+                "duration_ms": null,
+                "is_error": false,
+                "summary": "awaiting approval 563f12f2-58fe-4aab-b831-3dae9603e487"
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "563f12f2-58fe-4aab-b831-3dae9603e487",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "create-ticket-roof-leak",
+                "title": "Leaking Roof Over Server Room",
+                "requester": "Priya Raman",
+                "description": "There is a leaking roof over the server room causing potential risk to the hardware.",
+                "priority": "urgent",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "create-ticket-roof-leak",
+                "title": "Leaking Roof Over Server Room",
+                "requester": "Priya Raman",
+                "description": "There is a leaking roof over the server room causing potential risk to the hardware.",
+                "priority": "urgent",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:07:04.178107Z"
+            },
+            "session_id": "sess-c728902ec7154b708fbe3e4949fc6183",
+            "stop_reason": "awaiting_approval",
+            "steps": 1
+          }
+        },
+        {
+          "index": 1,
+          "kind": "invocation",
+          "payload": {
+            "output": "There are 3 tickets related to the printer:\n\n1. **TCK-1028**: \"Broken printer on the third floor\"\n   - Status: open\n   - Priority: high\n   - Category: hardware\n   - Requester: Dana Holst\n\n2. **TCK-1025**: \"Broken printer on third floor\"\n   - Description: The printer on the third floor is broken and needs repair.\n   - Status: open\n   - Priority: high\n   - Category: hardware\n   - Requester: Dana Holst\n\n3. **TCK-1005**: \"Printer on floor 3 keeps jamming\"\n   - Description: The shared printer near the kitchen jams on every duplex job.\n   - Status: open\n   - Priority: low\n   - Category: hardware\n   - Requester: Aisha Khan",
+            "tool_calls": [
+              {
+                "name": "search_tickets",
+                "arguments": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "input": {
+                  "q": "printer",
+                  "page_size": 50
+                },
+                "outcome": "executed",
+                "status": "executed",
+                "duration_ms": 0,
+                "is_error": false,
+                "summary": "3 of 3 matching ticket(s) on page 1."
+              }
+            ],
+            "pending_approval": {
+              "approval_id": "563f12f2-58fe-4aab-b831-3dae9603e487",
+              "tool_name": "create_ticket",
+              "arguments": {
+                "client_request_id": "create-ticket-roof-leak",
+                "title": "Leaking Roof Over Server Room",
+                "requester": "Priya Raman",
+                "description": "There is a leaking roof over the server room causing potential risk to the hardware.",
+                "priority": "urgent",
+                "category": "hardware"
+              },
+              "action": "create_ticket",
+              "input": {
+                "client_request_id": "create-ticket-roof-leak",
+                "title": "Leaking Roof Over Server Room",
+                "requester": "Priya Raman",
+                "description": "There is a leaking roof over the server room causing potential risk to the hardware.",
+                "priority": "urgent",
+                "category": "hardware"
+              },
+              "summary": "The agent wants to call create_ticket. Approving this runs it with exactly the arguments shown.",
+              "expires_at": "2026-10-15T14:07:04.178107"
+            },
+            "session_id": "sess-c728902ec7154b708fbe3e4949fc6183",
+            "stop_reason": "completed",
+            "steps": 2
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -43,7 +43,7 @@ from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.db.repositories.facts import FactRepository
 from agent_service.db.repositories.sessions import SessionRepository
 from agent_service.db.repositories.traces import TraceRepository
-from agent_service.observability import MEMORY, MODEL_TURN, Tracer
+from agent_service.observability import MEMORY, MODEL_TURN, RunExport, Tracer
 from agent_service.providers.base import Message, ModelProvider
 from agent_service.tools.registry import ToolRegistry
 
@@ -360,8 +360,8 @@ def as_pending_approval(approval: Approval) -> PendingApproval:
     Carries ``expires_at`` because the decision is time-limited and a client that does not know
     when would show an approval button that fails when pressed.
 
-    Public because two callers need it: the invocation response, and the web page's listing of
-    what is still waiting. They must produce the same shape and the same sentence — a proposal
+    Public because two callers need it: the invocation response, and a client's listing of what is
+    still waiting. They must produce the same shape and the same sentence — a proposal
     that reads differently depending on which endpoint delivered it is a proposal a user has to
     re-read to decide, and the two would drift the first time either changed.
     """
@@ -370,7 +370,7 @@ def as_pending_approval(approval: Approval) -> PendingApproval:
         tool_name=approval.action,
         arguments=dict(approval.payload),
         # The contract's example names, carrying the same values. See `ToolCallRecord.input`: the
-        # page and the eval scorer read `tool_name`/`arguments`, a client written against the
+        # chat and the eval scorer read `tool_name`/`arguments`, a client written against the
         # contract's example reads `action`/`input`, and both are true statements about one row.
         action=approval.action,
         input=dict(approval.payload),
@@ -405,6 +405,7 @@ class InvocationHandlerFactory:
         turn_budget_s: float = DEFAULT_TURN_BUDGET_S,
         fact_ttl_days: int | None = None,
         decide: DecisionApplier | None = None,
+        export_trace: Callable[[RunExport], Awaitable[bool]] | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tools
@@ -430,6 +431,11 @@ class InvocationHandlerFactory:
         #: constructible without the gate: with none installed, an affirmative message is simply a
         #: message, which is how this service behaved before the contract's flow was supported.
         self._decide = decide
+        #: How a finished run reaches a collector, or ``None`` when none is configured — which is
+        #: the default, and the reason a bare checkout stays offline. The composition root passes a
+        #: bound `OtlpExporter.export`; this class knows only the call, so the agent layer never
+        #: learns that OTLP or HTTP exist.
+        self._export_trace = export_trace
 
     async def __call__(
         self,
@@ -581,6 +587,14 @@ class InvocationHandlerFactory:
             ),
             user_id=request.user_id,
         )
+
+        if self._export_trace is not None:
+            # After the local artefacts, never instead of them: the JSONL file and the row *are* the
+            # trace, and a collector is an additional reader. Awaited rather than handed to a
+            # background task, because one that outlives the request loses its spans when the
+            # process stops — and there is nothing slow here: a single POST with a five-second
+            # ceiling that cannot raise.
+            await self._export_trace(tracer.export_record())
 
         response = to_invocation_response(result, session_id=session_id)
         if response.pending_approval is None and outstanding:

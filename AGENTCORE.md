@@ -270,13 +270,21 @@ and no network. It is the reason the evals are a regression gate rather than a c
 reason every screenshot in `docs/media/` is reproducible. Nothing about AgentCore changes that, and
 I would keep a scripted provider in the deployed build for exactly this purpose.
 
-### 5. The page, served by the agent
+### 5. The front end
 
-The page is served from a Python constant at `/` by the same container. On Runtime the agent is
-reachable through the runtime's endpoint rather than a load balancer I configured, and whether an
-endpoint like that is meant to serve HTML to a human is a fair question — it is in the checklist.
-If the answer is no, the page moves to S3 + CloudFront and becomes a client of the same
-`/invocations` contract, which changes the page's deployment and not its code.
+**The agent serves no page — not locally and not here.** It used to serve one from a Python constant
+at `/`, and that is gone: the container is the API and nothing else, and the front end is the
+Chainlit app in `services/chat/`, which is an ordinary client of `/invocations`. This makes the
+AgentCore story smaller rather than larger. A runtime endpoint is built to serve a contract, and a
+question that used to be open — is this endpoint meant to render HTML for a human? — no longer has to
+be answered, because nothing here wants to render anything.
+
+The cost is a deployment I would have to make: the chat is a process of its own, so on AWS it needs a
+home rather than a `uv run` on my laptop. App Runner or a small ECS service in front of the runtime
+endpoint is the least machinery; a static build served from S3 + CloudFront would need the app to
+talk to the runtime from the browser, which means CORS on the runtime and a token in the page, and is
+the wrong trade for a chat that holds no state. Either way it is a client deployment and not an agent
+change — that is the point of removing the page rather than moving it.
 
 ## What I would change
 
@@ -354,7 +362,7 @@ design rather than just the configuration.
 | 8 | **Observability: OTEL ingestion, what it costs, and whether my span names and attributes survive.** | Cost is unbudgeted; span cardinality is the usual way an ingestion bill surprises people. | A deployed trace visible in the console, and the pricing model for ingestion and retention. |
 | 9 | **Evaluations' required instrumentation for a plain-code agent.** The docs name Strands and LangGraph with OTEL or OpenInference; mine is neither framework. | If it only scores those frameworks' own spans, using it means adopting a framework, not adding instrumentation — a much larger change, and one I would decline. | A deployed session from a non-framework agent scored, or a clear statement of the required span shape. |
 | 10 | **Cold start time for my image.** | It eats into the 90-second turn budget, and the image carries a Python runtime, an MCP client and a database driver. | Seconds-to-first-request, measured rather than assumed. |
-| 11 | **Whether the Runtime endpoint should serve the page, or the page should move to S3 + CloudFront.** | Deployment shape for the UI, and whether `/` is even reachable. The page's code does not change either way. | A statement about serving HTML from a Runtime endpoint, or a decision to move it. |
+| 11 | **Where the chat runs, and what the runtime endpoint requires of a browser-facing client.** | The UI is a separate process, so it needs a host (App Runner or a small ECS service) and the endpoint has to accept its calls — CORS and auth for a browser client are the two things that would decide the shape. | A deployed chat talking to a deployed agent, or a statement of what the endpoint requires of a client. |
 | 12 | **Region availability and quotas.** Which services are in the region I would use, and the default concurrency and request-rate limits. | A design that depends on a service not in the target region is not a design. | The supported-regions list and the service quotas for the account. |
 
 Two of these I would treat as go/no-go rather than tuning: **#3** (if the approvals table cannot be

@@ -43,6 +43,7 @@ from typing import Any
 
 from agent_service.db.base import utc_now
 
+from .otlp import RunExport
 from .spans import Span
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,33 @@ class Tracer:
             "error": self._error,
             "trace_path": str(self.trace_path),
         }
+
+    def export_record(self) -> RunExport:
+        """This run as the values an exporter needs.
+
+        Only valid once `finish` has run: before that there is no end time and no final status, and
+        exporting half a description of a run is worse than exporting nothing — a collector would
+        show a trace that looks complete and stops early.
+
+        This module deliberately does not know what an exporter *is*. It produces the record and the
+        caller hands it on; putting an HTTP client in the module whose job is writing files would
+        make every test of the writer need a transport.
+        """
+        if self._ended_at is None:
+            raise RuntimeError("export_record() needs a finished run; call finish() first")
+
+        return RunExport(
+            trace_id=self.id,
+            session_id=self._session_id,
+            user_id=self._user_id,
+            provider=self._provider,
+            model_id=self._model_id,
+            status=self._status,
+            error=self._error,
+            started_at=self._started_at,
+            ended_at=self._ended_at,
+            spans=tuple(self._spans),
+        )
 
     def _write_spans(self) -> None:
         """Write the spans as JSONL, reporting rather than raising on failure.

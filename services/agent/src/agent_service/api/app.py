@@ -1,13 +1,14 @@
 """The FastAPI application: the AgentCore Runtime contract and its wiring.
 
 Two routes are the contract. ``GET /ping`` answers health, and ``POST /invocations`` runs one
-turn. Everything the web UI needs lives in a separate router — the page at ``/`` and the one
-listing under ``/api`` — so a change to a local convenience endpoint cannot alter the contract's
-shape.
+turn. The handful of endpoints a chat client needs beyond those live in a separate router under
+``/api``, so a change to a convenience endpoint cannot alter the contract's shape.
 
-The page is served from this same app rather than from a second service. It is a client of
-``/invocations`` and the decision route exactly as any other client is, so a separate process
-would add a container, a port and a CORS decision in exchange for nothing.
+**This service serves no HTML.** The front end is ``services/chat/`` — a Chainlit app on the host
+that is a client of ``/invocations`` and the decision route exactly as any other client is. A page
+served from here used to exist as well, and removing it is worth a sentence: two front ends meant
+two transcripts to keep correct, two places a proposal could be rendered wrongly, and nothing about
+the contract that was clearer for either. ``client_routes.py`` records what stayed and why.
 
 **The loop is injected, not imported.** ``create_app`` takes an ``InvocationHandler`` and the
 default one reports that the loop is not installed. That is deliberate rather than a
@@ -36,18 +37,18 @@ from agent_service.config import Settings, get_settings
 
 from .approval_routes import DecisionHandler, create_approval_router
 from .cancel_routes import CancelHandler, create_cancel_router
-from .models import (
-    HealthResponse,
-    InvocationRequest,
-    InvocationResponse,
-)
-from .ui_routes import (
+from .client_routes import (
     ChooseProvider,
     DescribeProviders,
     PendingApprovalListing,
     SessionListing,
     TranscriptReader,
-    create_ui_router,
+    create_client_router,
+)
+from .models import (
+    HealthResponse,
+    InvocationRequest,
+    InvocationResponse,
 )
 
 #: The header the AgentCore Runtime uses to identify a conversation.
@@ -124,7 +125,7 @@ def create_app(
     inflight = _InflightCounter()
     decisions = create_approval_router(decision_handler)
     cancels = create_cancel_router(cancel_handler)
-    ui = create_ui_router(
+    clients = create_client_router(
         pending_approvals,
         describe_providers=describe_providers,
         choose_provider=choose_provider,
@@ -151,7 +152,7 @@ def create_app(
 
     app.include_router(decisions)
     app.include_router(cancels)
-    app.include_router(ui)
+    app.include_router(clients)
 
     @app.get("/ping", response_model=HealthResponse)
     async def ping() -> HealthResponse:

@@ -26,7 +26,7 @@ from sqlalchemy.pool import StaticPool
 
 import agent_service.db.models  # noqa: F401 - registers every table on Base.metadata
 from agent_service.api.app import create_app
-from agent_service.api.ui_routes import SessionSummary, TranscriptMessage
+from agent_service.api.client_routes import SessionSummary, TranscriptMessage
 from agent_service.config import Settings
 from agent_service.db.base import Base, create_session_factory, register_sqlite_pragmas, utc_now
 from agent_service.db.repositories.sessions import (

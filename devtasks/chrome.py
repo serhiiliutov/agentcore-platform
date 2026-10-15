@@ -1,4 +1,9 @@
-"""A small Chrome DevTools Protocol driver, for capturing screenshots of the running page.
+"""A small Chrome DevTools Protocol driver, for capturing screenshots of the running front end.
+
+The front end is the Chainlit chat in `services/chat/`, which is the only one there is: the agent
+serves no page of its own any more (see `client_routes.py` for why the second one was removed), so
+this driver talks to whatever `devtasks chat` is serving. Chainlit is a React application, which is
+what the three helpers at the bottom of this file are for.
 
 Why this exists rather than a folder of PNGs: the assignment asks for screenshots or a recording of
 one run from start to finish, and a committed image with no way to produce it is an artefact nobody
@@ -284,16 +289,28 @@ class Chrome:
         """
         what = description or expression
         deadline = time.monotonic() + timeout
+        last_error: str | None = None
+        attempts = 0
         while time.monotonic() < deadline:
             try:
                 if self.evaluate(expression, timeout=max(1.0, deadline - time.monotonic())):
                     return True
-            except TaskError:
+                last_error = None
+            except TaskError as exc:
                 # A transient evaluation failure while the DOM is mid-update is normal; only the
                 # deadline running out is a failure.
-                pass
+                #
+                # Kept rather than discarded, and that is the difference between a usable and a
+                # useless message here. Swallowing it silently means a *systematic* fault — a
+                # websocket that stopped answering, a page that navigated away — is reported as
+                # "timed out waiting for the login form", which names the symptom and hides the
+                # cause. When the condition simply never became true, `last_error` is still set
+                # when the deadline passes, and it is the only diagnostic there is.
+                last_error = f"{type(exc).__name__}: {exc}"
+            attempts += 1
             time.sleep(interval)
-        raise TaskError(f"timed out after {timeout:.0f}s waiting for {what}")
+        detail = f" ({attempts} attempt(s); last error: {last_error})" if last_error else ""
+        raise TaskError(f"timed out after {timeout:.0f}s waiting for {what}{detail}")
 
     def screenshot(self, path: Path) -> Path:
         """Capture the viewport as a PNG at `path`."""
@@ -302,25 +319,6 @@ class Chrome:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return path
-
-    def set_value(self, selector: str, value: str) -> None:
-        """Set a field's value and fire `input`/`change`, as typing would.
-
-        Assigning `.value` alone is not enough: the page reads the field when the form is
-        submitted, but a listener bound to `change` — the user/session fields have one — would
-        never run, and a capture would then show a state the UI cannot actually reach.
-        """
-        self.evaluate(
-            "(function () {"
-            f"  var node = document.querySelector({json.dumps(selector)});"
-            "  if (!node) throw new Error('no element matches ' + "
-            f"{json.dumps(selector)});"
-            f"  node.value = {json.dumps(value)};"
-            "  node.dispatchEvent(new Event('input', { bubbles: true }));"
-            "  node.dispatchEvent(new Event('change', { bubbles: true }));"
-            "  return true;"
-            "})()"
-        )
 
     def click(self, selector: str) -> None:
         """Click the first element matching `selector`."""
@@ -331,4 +329,142 @@ class Chrome:
             "  node.click();"
             "  return true;"
             "})()"
+        )
+
+    def type_keys(self, selector: str, value: str) -> None:
+        """Focus a field and type `value` one key at a time, then verify it stayed.
+
+        One method rather than three, because two of the three obvious approaches do not work
+        against a controlled React input and both fail *silently* — which is the expensive part:
+
+        * Assigning `node.value` is ignored. React's value tracker does not see it and the next
+          render restores the old text.
+        * The prototype setter plus an `input` event (the usual React workaround) works on some
+          fields and not others. It submitted this application's login form and did nothing at all
+          for Chainlit's composer.
+        * `Input.insertText` looks like the answer — it is documented as inserting text as an IME
+          would — and against the composer the text appeared and was then *reverted*: the field
+          went 0 characters, to the prompt, back to 0 within three seconds, and the send button
+          stayed disabled the whole time. Nothing failed; the message simply never sent.
+
+        Per-character `Input.dispatchKeyEvent` is what a keyboard actually does, and it is the only
+        one of the three that a framework built on `onChange` cannot miss. It is slower — two
+        protocol calls per character — which is irrelevant at these sizes and is the price of the
+        field accepting the text at all.
+
+        The read-back is what makes the failure loud. A field that reverts produces no error until
+        something downstream times out waiting for a control to enable, and that message names the
+        symptom rather than the cause.
+        """
+        self.evaluate(
+            "(function () {"
+            f"  var node = document.querySelector({json.dumps(selector)});"
+            f"  if (!node) throw new Error('no element matches ' + {json.dumps(selector)});"
+            "  node.focus();"
+            "  return true;"
+            "})()"
+        )
+        for character in value:
+            self.call(
+                "Input.dispatchKeyEvent",
+                {
+                    "type": "keyDown",
+                    "text": character,
+                    "unmodifiedText": character,
+                    "key": character,
+                },
+            )
+            self.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": character})
+
+        actual = self.evaluate(
+            "(function () {"
+            f"  var node = document.querySelector({json.dumps(selector)});"
+            "  return node ? (node.value !== undefined ? node.value : node.textContent) : null;"
+            "})()"
+        )
+        if actual != value:
+            raise TaskError(
+                f"typing into {selector} produced {actual!r} rather than {value!r}; the field did "
+                f"not keep the text, so anything waiting on it would fail for the wrong reason"
+            )
+
+    def press_enter(self, selector: str) -> None:
+        """Focus a field and send a real Enter key press through the browser.
+
+        A synthetic `KeyboardEvent` is not enough here: React's `onKeyDown` receives it, but
+        Chainlit's composer also relies on the browser's own default handling, and a
+        `dispatchEvent`ed key carries `isTrusted: false` with no default action. Driving
+        `Input.dispatchKeyEvent` from the protocol is the difference between "the handler ran" and
+        "the message was sent".
+        """
+        self.evaluate(
+            "(function () {"
+            f"  var node = document.querySelector({json.dumps(selector)});"
+            f"  if (!node) throw new Error('no element matches ' + {json.dumps(selector)});"
+            "  node.focus();"
+            "  return true;"
+            "})()"
+        )
+        for event_type in ("keyDown", "keyUp"):
+            self.call(
+                "Input.dispatchKeyEvent",
+                {
+                    "type": event_type,
+                    "key": "Enter",
+                    "code": "Enter",
+                    "windowsVirtualKeyCode": 13,
+                    "nativeVirtualKeyCode": 13,
+                },
+            )
+
+    def click_text(self, text: str, *, tag: str = "button") -> None:
+        """Click the first `<tag>` whose own text contains `text`, case-insensitively.
+
+        Needed because an action button's label is the only stable thing about it. Chainlit renders
+        `cl.Action` as a plain `<button>` with no id and a generated class, so the accessible label
+        is the identifier a capture can rely on — and matching on it is also what a person does.
+
+        An exact match is tried first and a substring second, so "Approve" cannot be satisfied by
+        "Approve and run" when both happen to be on screen.
+        """
+        self.evaluate(
+            "(function () {"
+            f"  var wanted = {json.dumps(text)}.toLowerCase();"
+            f"  var nodes = Array.prototype.slice.call(document.querySelectorAll({json.dumps(tag)}));"
+            "  var pick = function (exact) {"
+            "    for (var i = 0; i < nodes.length; i++) {"
+            "      var label = (nodes[i].innerText || nodes[i].textContent || '').trim().toLowerCase();"
+            "      if (label === wanted) return nodes[i];"
+            "      if (!exact && label.indexOf(wanted) !== -1) return nodes[i];"
+            "    }"
+            "    return null;"
+            "  };"
+            "  var node = pick(true) || pick(false);"
+            f"  if (!node) throw new Error('no {tag} reads ' + {json.dumps(text)});"
+            "  node.click();"
+            "  return true;"
+            "})()"
+        )
+
+    def count_text(self, text: str, *, tag: str = "*") -> int:
+        """How many elements whose text contains `text` are on the page.
+
+        A count rather than a presence check so a caller can wait for *another* occurrence: a chat
+        transcript accumulates, so "the agent has answered once" is already true by the second turn
+        and a presence check would fire before the second answer existed.
+        """
+        return int(
+            self.evaluate(
+                "(function () {"
+                f"  var wanted = {json.dumps(text)}.toLowerCase();"
+                f"  var nodes = Array.prototype.slice.call(document.querySelectorAll({json.dumps(tag)}));"
+                "  var hits = 0;"
+                "  for (var i = 0; i < nodes.length; i++) {"
+                "    var label = (nodes[i].innerText || nodes[i].textContent || '')"
+                "      .trim().toLowerCase();"
+                "    if (label.indexOf(wanted) !== -1) hits++;"
+                "  }"
+                "  return hits;"
+                "})()"
+            )
         )

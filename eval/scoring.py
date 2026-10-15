@@ -92,9 +92,24 @@ class CaseResult:
     #: produced it are visible, and a count is the one piece of evidence a payload cannot carry.
     tickets: dict[str, int | None] = field(default_factory=dict)
 
+    #: Why this case was not run, or ``None`` when it was. Set by the runner for a case that
+    #: declares it needs a provider this run is not using — see `deterministic_only` in
+    #: `cases.json`.
+    skipped: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        """Whether the agent did something wrong, as opposed to not being asked.
+
+        Separate from `passed` because a skipped case is neither. Collapsing the two would make a
+        skip either a lie (reported as a pass it did not earn) or noise (a red cell for a case that
+        never ran), and the report's whole value is that a green cell means something.
+        """
+        return self.error is not None or any(not check.ok for check in self.checks)
+
     @property
     def passed(self) -> bool:
-        return self.error is None and all(check.ok for check in self.checks)
+        return not self.failed and self.skipped is None
 
     @property
     def failures(self) -> list[Check]:
@@ -231,6 +246,21 @@ def _evaluate_one(assertion: dict[str, Any], observation: Observation) -> Check:
             f"expected an output containing {_describe(wanted_text)}, saw {outputs}",
         )
 
+    if kind == "output_is_not_empty":
+        # The claim is "it answered", not "it said these words". A case that pins a phrase pins a
+        # *provider*: the deterministic provider's fallback happens to begin with "Understood", and
+        # a live model refuses a poem request in whatever words it chooses — so `output_contains
+        # "Understood"` failed a run that behaved correctly, which is exactly what the first live
+        # `openai` run of this suite did. The requirement being measured here is that the agent
+        # said something rather than nothing, and that is what this asserts.
+        outputs = [str(step.payload.get("output", "")) for step in steps]
+        return Check(
+            assertion,
+            bool(outputs) and all(output.strip() for output in outputs),
+            f"expected every step to answer with something, saw "
+            f"{[output[:80] for output in outputs]}",
+        )
+
     if kind == "payloads_avoid":
         # Scans the whole recorded payload, not one field. The claim is "this string appears
         # nowhere the service said anything", and a check that inspected only `output` would pass
@@ -316,6 +346,7 @@ SUPPORTED_ASSERTIONS = frozenset(
         "tool_error",
         "tool_argument_is",
         "output_contains",
+        "output_is_not_empty",
         "payloads_avoid",
         "decision_outcome_is",
         "tickets_delta",
