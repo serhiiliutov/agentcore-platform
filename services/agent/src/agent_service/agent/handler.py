@@ -187,6 +187,12 @@ RULES
 4. Prefer one search to many lookups. When you need a property that search results already carry —
    status, priority, category, requester — read it from the result rather than fetching each ticket
    one at a time.
+5. Retrieve everything before you count it. A search returns one page: `total` is how many matches
+   exist and `has_more` says whether another page does. A question like "how many are open, by
+   category?" therefore needs `page_size` raised to cover the total (up to the tool's cap) and
+   further pages until `has_more` is false, before any figure is given. Never scale a count up from
+   the first page — a count computed from part of the data is simply wrong, and saying which part
+   you read is better than a number you cannot stand behind.
 
 WHAT YOU MUST NOT DISCLOSE
 

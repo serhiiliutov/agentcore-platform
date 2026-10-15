@@ -139,7 +139,12 @@ def build_server(
             f"rejected rather than ignored, so do not guess: `status` is one of {_STATUS_VALUES}; "
             f"`priority` is one of {_PRIORITY_VALUES}; "
             f"`category` is one of {_CATEGORY_VALUES}. "
-            f"`page_size` is capped at {MAX_PAGE_SIZE} by the API rather than truncated."
+            f"`page_size` is capped at {MAX_PAGE_SIZE} by the API rather than truncated. "
+            "To count, group or summarise results — 'how many are open', 'the split by "
+            f"category' — set `page_size` to `total` (no more than {MAX_PAGE_SIZE}) and keep "
+            "reading pages until `has_more` is false, then count what you received. Never "
+            "scale or estimate from one page: a row you did not retrieve is a row you do not "
+            "know about, and a count derived from the first page of several is wrong."
         ),
     )
     async def search_tickets_tool(

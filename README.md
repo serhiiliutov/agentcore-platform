@@ -89,7 +89,7 @@ For the development loop:
 uv sync --all-groups     # one environment for the whole workspace
 make help                # every command, with an example
 make doctor              # what is installed, what is configured, what is answering
-make test-unit           # 511 tests, no stack and no credentials needed
+make test-unit           # 516 tests, no stack and no credentials needed
 make eval                # starts its own stack and runs the 22 cases (exit 1 on any failure)
 ```
 
@@ -140,7 +140,7 @@ on first use.
 **Test it.** Three levels, none of which needs a key:
 
 ```powershell
-uv run python -m devtasks test-unit         # 511 tests in ~12s: no stack, no credentials
+uv run python -m devtasks test-unit         # 516 tests in ~12s: no stack, no credentials
 uv run python -m devtasks eval              # 22 cases, its own stack, exit 1 on any failure
 uv run python -m devtasks test-integration  # the 4 tests that need the stack from the line above
 ```
@@ -364,7 +364,7 @@ Three things follow, and together they are the argument:
 - **The architecture has to be testable apart from the model.** What this project is scored on —
   behaving correctly across a restart, the approval gate, retry and idempotency, the turn deadline — is
   ordinary code. Driving all of it through a model would give every failure two possible causes and
-  charge money to find out which. That is why 511 tests run in twelve seconds for free, and why the four
+charge money to find out which. That is why 516 tests run in twelve seconds for free, and why the four
   live providers are covered by unit tests against recorded payloads instead.
 
 The honest risk, since it is real: a reviewer who never changes provider sees a rules engine and could
@@ -428,6 +428,37 @@ Four properties make it real rather than decorative:
 Which tools are writes is **derived from their schemas**, not from a hand-maintained list: the MCP
 server requires `client_request_id` on writes, and the agent's gate branches on that same fact. Add a
 fifth write tool to the server and it is gated automatically.
+
+### Guardrails: what the agent refuses, and what it will not disclose
+
+Four rules live in the system prompt (`agent/handler.py`, `SYSTEM_PROMPT`) rather than being left to
+the model's judgement, because a capable model given no boundary will answer anything:
+
+| Guardrail | What it stops | Why a prompt, and not code |
+|---|---|---|
+| **Scope** | requests that are not about the ticketing system — general knowledge, code, arithmetic, small talk | the model is the only component that can recognise an out-of-domain *sentence*; the tools never see the question, only the calls |
+| **Grounding** | invented tickets, statuses, requesters, categories, comments | only the model knows whether what it is about to say came from a tool result or from its own prior |
+| **Disclosure** | reciting the system prompt, echoing a credential a user pastes into the chat | the prompt is the one place that knows what must not be repeated, and the transcript is stored and traced |
+| **Injection** | obeying an instruction embedded in a ticket's title, description or comment | the boundary between "what the user asked" and "what a ticket says" is visible only to the model |
+
+**Grounding is the one with a failure behind it, and it is why the fix has two halves.** A live run
+against `gpt-4o-mini` answered "Can you calculate distribution of tickets by status, by category?"
+by listing twenty-five tickets with ids, titles, requesters and statuses it had **invented** — the
+fixture's requesters are people's names and the model produced `user1@example.com` through
+`user25@example.com` — and then reported that category information was not available, for tickets
+that carry a category. The cause was upstream: the model was being handed one sentence per tool call
+("10 of 25 matching ticket(s) on page 1.") and no data at all, because `as_model_text` forwarded the
+human-readable half of the MCP result and dropped the structured half. That is fixed, and
+`tests/unit/test_tool_result_to_model.py` is the regression guard. But the second half is the prompt:
+data alone would still permit a confident guess about a field that is genuinely absent, and the model
+now has to say which field it cannot see rather than filling the gap.
+
+**What these guardrails are not.** They are instructions, so they are obeyed probabilistically — a
+prompt is a strong constraint on a capable model and never a guarantee. The guarantee in this system
+is elsewhere: the approval gate means no write happens without a human, whatever the model says.
+Where a rule *can* be structural it is — a credential cannot be echoed from a place it is never put,
+which is why keys are `SecretStr` and a canary test asserts it — and the prompt covers the part that
+cannot be.
 
 ### What memory keeps, where, and for how long
 
@@ -701,7 +732,7 @@ Four further decisions that did not need an ADR but carry weight:
 - **mypy in strict mode** across the services, the tests and the dev tooling — 115 files, no `any` in
   signatures, and no `# type: ignore` that is not explained.
 - **ruff** for lint and formatting, with the ruleset pinned in `pyproject.toml`.
-- **511 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
+- **516 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
   own tests), and integration tests against the composed stack for the rest.
 - **Small modules with docstrings that explain *why*.** The docstrings are the design document at the
   code level: why spans are not rows, why a cancel does not interrupt a write, why an open span
@@ -744,7 +775,7 @@ AI-assisted engineering are specific and predictable:
 
 | Failure mode | The control that catches it here |
 |---|---|
-| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 511 tests, and integration tests against the composed stack, all green before any commit |
+| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 516 tests, and integration tests against the composed stack, all green before any commit |
 | Confident documentation that describes what was intended rather than what exists | every number in the docs is copied from real output; docs are written *after* the thing and against the running system. This caught six architecture documents that were linked and never written |
 | A feature that works and is unreachable from the running system | each stage's definition of done is exercised through the real surface — over HTTP, in a container, with a browser. This caught the web page (stage 11) and the CI compose file (stage 14) both existing and being unreachable |
 | Scope drifting toward what is easy to generate | a plan of record written first, one piece of work at a time, each with what it would produce and how it would be checked |
