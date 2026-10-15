@@ -74,6 +74,13 @@ data/
 # modified. `services/chat/.chainlit/config.toml`, which *is* ours, stays tracked — the negation is
 # what keeps it visible while its sibling directory is ignored.
 services/chat/.chainlit/translations/
+
+# Starting Chainlit by hand from the repository root — rather than through `devtasks chat`, which
+# pins its working directory to `services/chat` — makes it create a `.chainlit/` here as well: a
+# default `config.toml` and the same generated translations. Nothing under it is authored here, so
+# it is ignored; the rule is root-anchored so the tracked `services/chat/.chainlit/config.toml`
+# above stays visible.
+/.chainlit/
 *.sqlite
 *.sqlite3
 *.sqlite3-wal

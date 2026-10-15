@@ -89,7 +89,7 @@ For the development loop:
 uv sync --all-groups     # one environment for the whole workspace
 make help                # every command, with an example
 make doctor              # what is installed, what is configured, what is answering
-make test-unit           # 516 tests, no stack and no credentials needed
+make test-unit           # 537 tests, no stack and no credentials needed
 make eval                # starts its own stack and runs the 22 cases (exit 1 on any failure)
 ```
 
@@ -140,7 +140,7 @@ on first use.
 **Test it.** Three levels, none of which needs a key:
 
 ```powershell
-uv run python -m devtasks test-unit         # 516 tests in ~12s: no stack, no credentials
+uv run python -m devtasks test-unit         # 537 tests in ~12s: no stack, no credentials
 uv run python -m devtasks eval              # 22 cases, its own stack, exit 1 on any failure
 uv run python -m devtasks test-integration  # the 4 tests that need the stack from the line above
 ```
@@ -364,7 +364,7 @@ Three things follow, and together they are the argument:
 - **The architecture has to be testable apart from the model.** What this project is scored on —
   behaving correctly across a restart, the approval gate, retry and idempotency, the turn deadline — is
   ordinary code. Driving all of it through a model would give every failure two possible causes and
-charge money to find out which. That is why 516 tests run in twelve seconds for free, and why the four
+charge money to find out which. That is why 537 tests run in twelve seconds for free, and why the four
   live providers are covered by unit tests against recorded payloads instead.
 
 The honest risk, since it is real: a reviewer who never changes provider sees a rules engine and could
@@ -495,6 +495,52 @@ me?" is answerable. The limitation I would want stated plainly: **isolation** is
 request body, so a client that lies about it sees someone else's memory. On AgentCore, Identity would
 make that an authentication property instead of a convention. That gap is in the verification table
 of [`AGENTCORE.md`](AGENTCORE.md). Design detail: `agent/memory.py`.
+
+**The chat front end can now make that identity real, and reopen an earlier conversation.** Two
+capabilities were added to `services/chat/`, both because the front end could not otherwise show
+something the agent already knew:
+
+- **Login, so a user is chosen rather than shared.** `CHAT_USERS="alice:…,bob:…"` registers a
+  `@cl.password_auth_callback`, and `_user_id()` — which already preferred `session.user.identifier`
+  — begins scoping memory, approvals and conversations per person. It is **off by default,
+  deliberately**: shipping an account would mean shipping a password, and this demonstrates identity
+  rather than access control — no user database, no hashing, no lockout, the password compared with
+  `hmac.compare_digest`. For anything real, `_authenticate` becomes `@cl.oauth_callback` and nothing
+  else changes. It makes the name *chosen* instead of *guessed*, which is a real improvement and still
+  not verification — the gap above is unchanged.
+
+  Two variables are needed rather than one, and both failures are handled where they happen rather than
+  documented as pitfalls. Chainlit refuses to start an auth callback without `CHAINLIT_AUTH_SECRET`
+  (the key it signs the session cookie with), and it checks *before importing the app* — so
+  `devtasks chat` refuses instead, in one sentence naming both variables, because nothing inside
+  `app.py` could turn that traceback into a sentence. And signing in used to return **500**: Chainlit
+  reads a set `DATABASE_URL` as "persist chats to Postgres" and then imports a data layer whose first
+  line needs `asyncpg`. This repository's `.env` sets that variable for the *agent*, and Chainlit loads
+  a `.env` from its working directory — so starting the chat from the repository root made login fail
+  for a reason with no visible connection to anything anybody did. The app now removes the variable at
+  import, because a front end that keeps no state has nothing for a data layer to store and the only
+  thing this variable can do here is break login.
+
+  Both settings live in `.env` — the same file `cp .env.example .env` creates and compose reads for
+  the services — because the alternative was the trap this started as: a value written into `.env` that
+  nothing read, so the chat started anonymously with no login screen and no complaint. `devtasks chat`
+  passes the chat's own variables through and nothing else, as an allow-list
+  (`AGENT_BASE_URL`, `CHAT_USER_ID`, `CHAT_USERS`, `CHAINLIT_AUTH_SECRET`, `CHAT_TIMEOUT_S`) rather than
+  the whole file, so the ticketing key and the agent's database URL never reach a front end with no use
+  for either. An exported variable still wins over the file, and a compose-only hostname in
+  `AGENT_BASE_URL` is translated to loopback for a host run — which is what stopped the chat reporting
+  a healthy agent as unreachable.
+- **Choosing a conversation.** The agent gained the two reads the Runtime contract has no room for —
+  `GET /api/sessions` (a user's conversations, newest first, each with its opening line and length)
+  and `GET /api/sessions/{id}/messages` (one conversation, oldest first) — and the chat's settings
+  panel lists them. Choosing one redraws that conversation *and* points subsequent turns at it, which
+  is the whole reason both endpoints exist: the agent holds every conversation, so switching without
+  redrawing would leave the agent continuing history the screen had never shown. Both are scoped by
+  `user_id`, and a conversation belonging to somebody else reads as **empty rather than forbidden** —
+  an id that is not yours must be indistinguishable from one that does not exist, the same rule
+  `SessionRepository.ensure` documents. `tests/unit/test_session_listing.py` covers the ordering, the
+  preview, the truncation and the assertion the endpoint rests on: one user's conversations are
+  invisible to another.
 
 ## d. Tool design
 
@@ -732,7 +778,7 @@ Four further decisions that did not need an ADR but carry weight:
 - **mypy in strict mode** across the services, the tests and the dev tooling — 115 files, no `any` in
   signatures, and no `# type: ignore` that is not explained.
 - **ruff** for lint and formatting, with the ruleset pinned in `pyproject.toml`.
-- **516 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
+- **537 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
   own tests), and integration tests against the composed stack for the rest.
 - **Small modules with docstrings that explain *why*.** The docstrings are the design document at the
   code level: why spans are not rows, why a cancel does not interrupt a write, why an open span
@@ -775,7 +821,7 @@ AI-assisted engineering are specific and predictable:
 
 | Failure mode | The control that catches it here |
 |---|---|
-| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 516 tests, and integration tests against the composed stack, all green before any commit |
+| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 537 tests, and integration tests against the composed stack, all green before any commit |
 | Confident documentation that describes what was intended rather than what exists | every number in the docs is copied from real output; docs are written *after* the thing and against the running system. This caught six architecture documents that were linked and never written |
 | A feature that works and is unreachable from the running system | each stage's definition of done is exercised through the real surface — over HTTP, in a container, with a browser. This caught the web page (stage 11) and the CI compose file (stage 14) both existing and being unreachable |
 | Scope drifting toward what is easy to generate | a plan of record written first, one piece of work at a time, each with what it would produce and how it would be checked |

@@ -15,9 +15,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 from urllib.error import URLError
+from urllib.parse import urlparse, urlunsplit
 from urllib.request import Request, urlopen
 
+from dotenv import dotenv_values
+
 from devtasks.runner import (
+    ENV_FILE,
     REPO_ROOT,
     TaskError,
     build_env,
@@ -60,6 +64,20 @@ SECRETS_EXCLUDE = (
     # Local environments, caches and runtime data: third-party content, not ours.
     r"(^|[\\/])(\.venv|\.git|data|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache"
     r"|htmlcov|node_modules)[\\/]"
+    # Chainlit creates these two wherever it is started: `.chainlit/translations/` is a copy of
+    # the dependency's own UI strings, and `.files/` is its upload directory. Both are re-created
+    # on every run and both are gitignored, so scanning them proves nothing about this repository
+    # while contributing twenty findings of somebody else's text — enough on its own to fail the
+    # gate on a working tree that is entirely clean.
+    r"|(^|[\\/])(\.chainlit|\.files)[\\/]"
+    # `.env` itself, and this one is policy rather than noise. It is gitignored, and it is the
+    # documented place for a credential — so scanning it makes the gate fail at exactly the moment
+    # a developer configures a live provider, and the advice it then prints ("remove it from the
+    # tree and rotate it") is wrong twice over: the value is not in the tree, and git will not put
+    # it there. `.env.example` is tracked and stays covered, which is the part that matters —
+    # the template must never grow a real secret. The residual gap is a deliberate `git add -f
+    # .env`, and a commit that does that is visible in review as exactly what it is.
+    r"|(^|[\\/])\.env$"
     # ...and the allow-list itself. Its `hashed_secret` values are hex strings and read as
     # secrets to the detector; scanning our own allow-list is circular, and without this the
     # gate fails on a clean tree. detect-secrets skips the baseline by itself only when it is
@@ -133,10 +151,12 @@ def secrets(extra: Sequence[str] = ()) -> int:
 
     A finding is accepted only if its secret *hash* is already in
     `.secrets.baseline`, which is the record of the values we have read and decided
-    are public: the starter kit's documented `dev-key-123`, the canary string that
-    tests/unit/test_providers.py asserts never appears in a log or a response, and
-    one false positive where the matched text is the *name* of an environment
-    variable rather than a value.
+    are public: the starter kit's documented `dev-key-123`; **two** canary strings,
+    one in tests/unit/test_providers.py asserting a key never appears in a log or a
+    response, and one in tests/unit/test_loop_control.py asserting that a provider's
+    own refusal — which quotes the key it rejected — never reaches the response
+    either; and one false positive where the matched text is the *name* of an
+    environment variable rather than a value.
 
     The comparison is by hash, not by path, and deliberately: the baseline was
     written on Windows, where detect-secrets records `devtasks\\tasks.py`, and a
@@ -423,6 +443,29 @@ CHAT_PORT = 8001
 #: has to downgrade one of them and the MCP server stops importing. See services/chat/pyproject.toml.
 CHAT_DIR = REPO_ROOT / "services" / "chat"
 
+#: The chat front end's own settings, and the only variables read out of `.env` for it.
+#:
+#: An allow-list rather than the whole file, and that is a boundary rather than tidiness: `.env`
+#: also holds the ticketing API key and the agent's database URL, and this front end has no use for
+#: either. Handing a subprocess every secret in a file because the file happens to be nearby is how
+#: a credential ends up somewhere it was never meant to be — the same separation the three-service
+#: split exists to draw.
+CHAT_ENV_KEYS: tuple[str, ...] = (
+    "AGENT_BASE_URL",
+    "CHAT_USER_ID",
+    "CHAT_USERS",
+    "CHAINLIT_AUTH_SECRET",
+    "CHAT_TIMEOUT_S",
+)
+
+#: The name compose gives the agent service — resolvable inside the compose network and nowhere
+#: else. Worth recognising by name because `.env` is written *for* compose and sets
+#: ``AGENT_BASE_URL=http://agent:8080``, so a chat started on the host from that file reported the
+#: agent as unreachable while the stack was up and healthy.
+COMPOSE_AGENT_HOST = "agent"
+#: Where that agent is published on the host, for when the compose name is translated.
+HOST_AGENT_PORT = 8080
+
 
 def chat(extra: Sequence[str] = ()) -> int:
     """Run the Chainlit chat front end against a running agent. Blocking.
@@ -441,7 +484,35 @@ def chat(extra: Sequence[str] = ()) -> int:
     os.getcwd())`` in its ``config.py`` — not against the app file. Running from the repository root
     therefore reads the root's config and writes a ``.files/`` directory there, which is how a stray
     top-level ``.chainlit/`` appeared. Pinning the cwd keeps both inside the service that owns them.
+
+    **Login needs two variables, and Chainlit's own failure for the second one is a traceback.**
+    Setting ``CHAT_USERS`` makes the app register a password callback; Chainlit then refuses to
+    start without ``CHAINLIT_AUTH_SECRET`` — the key it signs the session cookie with — and it makes
+    that check *before importing the app*, so nothing in ``app.py`` can intercept it. The guard
+    below turns those six lines of traceback into one sentence naming both variables, which is the
+    same shape as every other configuration failure in this file.
     """
+    environment = _chat_environment()
+    if environment.get("CHAT_USERS") and not environment.get("CHAINLIT_AUTH_SECRET"):
+        raise TaskError(
+            "CHAT_USERS is set, so the chat would show a login screen — and Chainlit will not "
+            "start one without a signing secret for its session cookie. Generate one and put it "
+            "where CHAT_USERS is, either in .env or in the environment:\n"
+            "  uv run --project services/chat chainlit create-secret   # prints the line to add\n"
+            "It has to be a real secret wherever the chat is shared: it is what stops a session "
+            "cookie being forged, and every instance must use the same value or a restart logs "
+            "everyone out. Unset CHAT_USERS to run anonymously instead."
+        )
+    if environment.get("CHAINLIT_AUTH_SECRET") and not environment.get("CHAT_USERS"):
+        # The half-configured case, and the silent one: a secret with no accounts reads like "login
+        # is set up" and then offers no login screen at all. Not an error — the anonymous chat is a
+        # legitimate way to run — but it must never be a surprise, which is exactly what it was.
+        print(
+            "note: CHAINLIT_AUTH_SECRET is set but CHAT_USERS is not, so there will be NO login "
+            "screen — the chat runs as the single anonymous identity above. Add "
+            "`CHAT_USERS=name:password` to .env to turn login on.",
+            flush=True,
+        )
     return run(
         [
             *resolve_tool("uv"),
@@ -456,7 +527,68 @@ def chat(extra: Sequence[str] = ()) -> int:
             *extra,
         ],
         cwd=CHAT_DIR,
+        env=environment,
     )
+
+
+def _chat_environment() -> dict[str, str]:
+    """The environment for the chat: this shell, then `.env`, then the host translation.
+
+    Precedence is worth stating because it is the opposite of the obvious one — a variable exported
+    in this shell wins over `.env`. A value typed for one run is a decision about that run, while
+    `.env` is the file's standing configuration, so the specific beats the general and the file can
+    be left alone while somebody points the chat at a different agent for a minute.
+
+    Reading `.env` at all is the reason this function exists. This repository's convention is that
+    configuration lives in `.env` — ``cp .env.example .env`` is the first line of both README and
+    HOW-TO-TEST — and compose honours that for the services. The chat, though, runs on the *host*,
+    started by this task rather than by Docker, so before this step a `CHAT_USERS` or a
+    `CHAINLIT_AUTH_SECRET` written into `.env` did nothing whatsoever: nothing read the file, and
+    the chat silently started anonymously with no login screen and no complaint. Which is exactly
+    how it was found — by being asked why a secret that had been added to `.env` had no effect.
+    """
+    environment = dict(os.environ)
+    for key, value in _chat_env_from_dotenv().items():
+        environment.setdefault(key, value)
+    base_url = environment.get("AGENT_BASE_URL")
+    if base_url:
+        environment["AGENT_BASE_URL"] = _host_reachable(base_url)
+    return environment
+
+
+def _chat_env_from_dotenv() -> dict[str, str]:
+    """The chat's own variables out of the repository `.env`, and nothing else.
+
+    Read with ``python-dotenv`` rather than by hand so quoting, comments and ``${VAR}``
+    interpolation behave exactly as they do for compose, which reads the same file. Only the keys in
+    ``CHAT_ENV_KEYS`` are taken — see that constant for why there is a list rather than a copy.
+    """
+    if not ENV_FILE.exists():
+        return {}
+    return {
+        key: value
+        for key, value in dotenv_values(ENV_FILE).items()
+        if key in CHAT_ENV_KEYS and isinstance(value, str) and value
+    }
+
+
+def _host_reachable(base_url: str) -> str:
+    """Rewrite compose's service name to loopback, for a run outside the compose network.
+
+    `.env` is written for compose, where ``agent`` is a name Docker's DNS resolves and
+    ``localhost`` would be the wrong container. Off that network the reverse holds, so a chat
+    started from this file reported the agent as unreachable while the stack was up and healthy —
+    and told the reader to start a stack that was already running.
+
+    Only the service name is translated, and only the host: a URL naming a real host, a remote
+    agent, or the same service on another port comes back untouched, because guessing beyond the
+    one case that cannot possibly work would quietly ignore a deliberate setting.
+    """
+    parsed = urlparse(base_url)
+    if parsed.hostname != COMPOSE_AGENT_HOST:
+        return base_url
+    port = parsed.port or HOST_AGENT_PORT
+    return urlunsplit((parsed.scheme or "http", f"127.0.0.1:{port}", parsed.path, "", ""))
 
 
 #: The page under capture, and the two turns the assignment asks to see.

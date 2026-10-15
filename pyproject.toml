@@ -59,6 +59,11 @@ dev = [
   "mypy>=1.16",
   "ruff>=0.12",
   "detect-secrets>=1.5",
+  # Read by `devtasks chat` to pick the chat front end's settings up from `.env` — the same file
+  # compose reads for the services. Declared rather than relied on transitively: it also arrives
+  # through the agent's `pydantic-settings`, and importing a package this project never asked for
+  # is how an unrelated dependency upgrade breaks a task.
+  "python-dotenv>=1.0",
   # The services themselves. Listing them here is what makes a plain
   # `uv sync --all-groups` install the whole workspace into one environment:
   # without it uv installs only this root project and its dev tooling, because

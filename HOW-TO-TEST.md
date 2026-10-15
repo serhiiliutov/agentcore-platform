@@ -215,17 +215,72 @@ stopping it does not touch the agent, and `docker compose down` does not stop it
 | Its effect here | a new **conversation** — a reload or a second tab starts one, and **New chat** starts another | whose **memory, approvals and traces** these are |
 | What it reaches the agent as | `session_id` | `user_id` |
 
-This deployment registers no auth callback, so every visitor is anonymous and the app falls back to a
-single shared identity, `CHAT_USER_ID` (default `chainlit-user`). That is right for a demo — it is
-what makes a proposal raised in one tab visible in the next — and wrong for anything multi-user,
-because all visitors then share one memory and one approval queue. To make it per-user, add
-`@cl.password_auth_callback` (or an OAuth provider) to `services/chat/app.py`: `_user_id()` already
-prefers a real identity when there is one and needs no other change.
+**Login needs two variables, and both belong in `.env`.** `CHAT_USERS` says who may log in; Chainlit
+also requires a signing secret for the session cookie it issues and refuses to start without one. Put
+both in the `.env` from §1 — `devtasks chat` reads the chat's settings from that file, the same file
+compose reads for the services — and then just start the chat:
+
+```powershell
+uv run --project services/chat chainlit create-secret   # prints CHAINLIT_AUTH_SECRET="..."
+# then add both lines to .env:
+#   CHAT_USERS=alice:correct-horse,bob:swordfish
+#   CHAINLIT_AUTH_SECRET="<the value it printed>"
+uv run python -m devtasks chat
+```
+
+`CHAT_USERS` is `name:password` pairs separated by commas. The secret must be a real one wherever the
+chat is shared — it is what stops a session cookie being forged — and every instance must use the same
+value, or a restart logs everyone out. `.env.example` documents both lines, commented out, beside
+`CHAT_USER_ID`.
+
+**Both are optional, and each half of the mistake reports itself rather than puzzling you:**
+
+| What you set | What happens |
+|---|---|
+| neither | no login screen; one shared anonymous identity (`CHAT_USER_ID`) — the default |
+| `CHAT_USERS` only | `devtasks chat` refuses to start, naming the secret to generate: Chainlit checks for it *before* importing the app, so its own failure is a six-line traceback that nothing in `app.py` can improve on |
+| the secret only | it starts, and prints a note that there will be **no** login screen, naming the line to add. This is the quiet one — it looks like "login is configured" while offering no login at all |
+
+A variable exported in the shell still works, and still wins over `.env` — which is what you want for a
+one-off run (`$env:AGENT_BASE_URL = 'http://localhost:9000'`, per Step 6).
+
+The login field is labelled **Email address** because that is Chainlit's own label; this app takes the
+account name, so typing `alice` is what works.
+
+**Login is off by default too, and for a reason of its own.** Shipping an account would mean shipping
+a password, and this is a demonstration of identity rather than access control: the accounts come from
+the environment, the password is compared with `hmac.compare_digest`, and there is no user database,
+no hashing and no lockout. In anything real you would replace `_authenticate` with
+`@cl.oauth_callback` and change nothing else, because `_user_id()` reads `session.user.identifier`
+either way.
+
+What it buys you, one line each: logged in as `alice`, the memory, the approvals and the
+conversations are hers; logged in as `bob`, none of them are. With no login, the agent sees one
+person.
 
 Worth being exact about what the fallback is: a **name**, not authentication. The agent takes
 `user_id` in the request body, so it isolates users from one another but cannot verify who is asking
 — a client that lies about its id sees that id's memory. Isolation is enforced and tested
 (`memory_isolation_between_users`); identity is not, and `README.md` section c names that gap.
+
+**Step 8 — reopen an earlier conversation.** The settings gear now has a **Conversation** list at the
+top. Every conversation of yours is in it, newest first, labelled by its opening line and its length
+(`find tickets about the printer · 4 message(s)`). Choosing one does two things: the chat redraws
+that conversation — your turns as your turns, the agent's as its replies — and the next message you
+send continues it rather than starting fresh.
+
+The redraw is the point rather than a flourish. The agent keeps every conversation in its own store,
+so pointing the chat at an earlier one *without* redrawing it would let the agent carry on from
+history the screen had never shown, which reads exactly like the conversation having been lost.
+`GET /api/sessions` lists them and `GET /api/sessions/{id}/messages` returns one; both are scoped to
+the logged-in identity, and a conversation that is not yours reads as empty rather than as a
+refusal.
+
+Two honest limits: the list is built when the chat starts, so a conversation created in another tab
+appears after a reload; and it holds the twenty most recent, which makes it a sidebar rather than an
+archive. Also worth knowing: the replayed conversation is the conversation only — the agent
+deliberately does not store the tool calls made inside it, so those steps appear live and not on
+replay.
 
 **When it goes wrong:**
 
@@ -233,6 +288,10 @@ Worth being exact about what the fallback is: a **name**, not authentication. Th
 |---|---|
 | `error while attempting to bind on address ('0.0.0.0', 8001)` | Something else holds 8001 — usually a previous run of this command. Find it with `Get-NetTCPConnection -LocalPort 8001 -State Listen`, then stop that process id |
 | It says it cannot reach the agent, and prints the URL it tried | The stack from §1 is not up or not healthy. That message is deliberate: it names the URL that failed instead of failing in a way that looks like a front-end bug |
+| `task failed: CHAT_USERS is set, so the chat would show a login screen …` | You set `CHAT_USERS` but not `CHAINLIT_AUTH_SECRET`. The message names both and says how to generate the second — see the login block above |
+| Signing in returns **500** | Should not be reachable any more. The app deletes `DATABASE_URL` from its own environment, because Chainlit reads a set one as "persist chats to Postgres" and then fails to import `asyncpg` — which is what a login from the repository root used to do. The log line to look for is `ignored a DATABASE_URL in the environment` |
+| It starts, but there is **no login screen** even though a secret is set | `CHAINLIT_AUTH_SECRET` is set without `CHAT_USERS`, so there are no accounts to log in with. The terminal says so at startup and names the line to add to `.env` |
+| A setting added to `.env` has no effect | Check the name: only the chat's own variables are read from `.env` (`AGENT_BASE_URL`, `CHAT_USER_ID`, `CHAT_USERS`, `CHAINLIT_AUTH_SECRET`, `CHAT_TIMEOUT_S`) — the rest of the file belongs to the services and is deliberately not handed to a front end |
 | The first run seems to hang with no output | It is resolving and downloading the chat's environment. Give it a minute |
 | `uv: command not found` | `uv` is not installed, and this front end needs it on the host — see Step 1 |
 | You want it from scratch | `Remove-Item -Recurse -Force services/chat/.venv` deletes *only* the chat's environment; the next run recreates it and the agent's environment is never touched |
@@ -480,7 +539,7 @@ These need Python 3.12 and `uv`, not Docker:
 
 ```powershell
 uv sync --all-groups                                                    # once
-uv run python -m devtasks test-unit                                     # 516 tests, ~12s, no stack
+uv run python -m devtasks test-unit                                     # 537 tests, ~12s, no stack
 uv run python -m devtasks eval                                          # 22 cases, starts its own stack, ~45s
 uv run python -m devtasks test-integration                              # 4 tests, needs the stack from §1
 ```

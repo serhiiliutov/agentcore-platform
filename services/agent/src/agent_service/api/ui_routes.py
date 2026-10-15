@@ -1,8 +1,8 @@
 """The routes the page needs that the contract does not already provide.
 
 Sending a message and answering a proposal are both already in the Runtime contract, so the page
-calls them directly and this module has almost nothing to add. Only three things were missing, and
-each had a reason.
+calls them directly and this module has almost nothing to add. What is here is the handful of things
+the contract has no room for, and each of them has a reason.
 
 **``GET /`` serves the page.** Inline rather than mounted from a directory: the HTML is a Python
 constant, so there is no static directory that can fail to be copied into an image, and no path
@@ -19,6 +19,14 @@ The listing reuses `PendingApproval`, the same type the invocation response carr
 defining a second shape for a proposal. Two shapes for one thing is how a field gets added to one
 of them and not the other, and the page would then render a proposal differently depending on
 which endpoint produced it.
+
+**``GET /api/sessions`` and ``GET /api/sessions/{id}/messages`` reopen an earlier conversation.**
+`CONTRACT.md` is one request in and one reply out, so nothing in it can be asked "which
+conversations do I have?" — which means a front end can only ever continue the conversation it is
+already in, and every reload strands the previous one. It takes two endpoints rather than one
+because they answer different questions at different sizes: a *menu* of a user's conversations,
+bounded at twenty, and *one* conversation in full. Drawing the picker from the second would read a
+whole conversation to render every row of a list.
 
 **``GET /api/info`` says which model is answering.** Also for a person rather than for a machine:
 the default provider is deterministic, so its replies are canned by design, and without this the
@@ -45,8 +53,9 @@ tested without a database and the app still starts without one.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import datetime
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -67,6 +76,76 @@ class ApprovalList(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     approvals: list[PendingApproval] = []
+
+
+class SessionSummary(BaseModel):
+    """One of a user's conversations, as a front end lists it.
+
+    Deliberately not the session id alone. A picker that showed a column of
+    `chainlit-3f9a2c81b4e7` would be unusable, so each row carries what a person actually
+    recognises: the opening of what they typed, when it was, and how long it got.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    session_id: str
+    #: Stored turns in it — the user's and the assistant's together.
+    messages: int = 0
+    #: When it was last written to. ``None`` only if a session somehow has messages with no
+    #: timestamp, which the schema does not allow.
+    last_at: datetime | None = None
+    #: The opening of the first thing the user said, truncated. Empty for a session whose first
+    #: message was not theirs, which cannot happen through this service's own loop.
+    preview: str = ""
+
+
+class SessionList(BaseModel):
+    """The listing, wrapped for the reason `ApprovalList` is: an array cannot grow a field."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    sessions: list[SessionSummary] = []
+
+
+class TranscriptMessage(BaseModel):
+    """One stored message from a conversation, for a front end replaying it.
+
+    Closer to the database row than the provider's message shape, and deliberately so: the two
+    readers want different things. A provider needs only what it must be shown — content, role, the
+    call it belongs to — while somebody resuming a conversation needs to see what happened, which
+    includes the order and the time.
+
+    In practice the rows are user and assistant turns. This service's loop deliberately stores the
+    conversation and not the tool calls in between (`agent/handler.py::_turn_messages`), so
+    ``tool_name`` is normally absent — it is carried because the column exists and a row that had one
+    would otherwise lose it, not because a replay should expect tool steps.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    sequence: int
+    #: ``user``, ``assistant``, ``tool`` or ``system``. Passed through as a string rather than
+    #: narrowed to a union, because the only consumer renders it — and a role this service stopped
+    #: writing should not make an older transcript unreadable.
+    role: str
+    content: str
+    #: Set on a tool call or its result, so a replay can label the row instead of printing JSON.
+    tool_name: str | None = None
+    created_at: datetime | None = None
+
+
+class Transcript(BaseModel):
+    """A whole conversation, oldest first.
+
+    Wrapped for the reason the other responses are — an array cannot grow a field — and for one
+    specific to this endpoint: a replay has to say *which* conversation it is showing, and that
+    fact has nowhere to live in a bare list.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    session_id: str
+    messages: list[TranscriptMessage] = []
 
 
 class ServiceInfo(BaseModel):
@@ -97,6 +176,11 @@ class ServiceInfo(BaseModel):
 
 #: Lists a user's outstanding proposals. Supplied by the wiring layer, like the other handlers.
 PendingApprovalListing = Callable[[str], Awaitable[Sequence[PendingApproval]]]
+#: Lists a user's conversations, newest first. Also supplied by the wiring layer.
+SessionListing = Callable[[str], Awaitable[Sequence[SessionSummary]]]
+#: Reads one conversation's messages. Takes the session id *and* the user, because a transcript is
+#: the most sensitive read here and the owner check cannot be left to whoever supplied the id.
+TranscriptReader = Callable[[str, str], Awaitable[Sequence[TranscriptMessage]]]
 
 
 class ProviderStatus(BaseModel):
@@ -182,7 +266,13 @@ _LIVE_NOTE = (
 
 
 class ListingNotConfiguredError(RuntimeError):
-    """Raised by the default listing because nothing is wired to the database."""
+    """Raised by a default listing because nothing is wired to the database.
+
+    Shared by both listings — approvals and sessions — because the condition is the same one and
+    the caller's response to it is identical: a 501 saying this endpoint exists but the wiring
+    layer has not supplied its reader. Each raises it with its own sentence, so the message still
+    names which listing is missing.
+    """
 
 
 async def _unconfigured_listing(_user_id: str) -> Sequence[PendingApproval]:
@@ -191,22 +281,38 @@ async def _unconfigured_listing(_user_id: str) -> Sequence[PendingApproval]:
     )
 
 
+async def _unconfigured_sessions(_user_id: str) -> Sequence[SessionSummary]:
+    raise ListingNotConfiguredError(
+        "no session listing is installed; it is supplied at application construction time"
+    )
+
+
+async def _unconfigured_transcript(_session_id: str, _user_id: str) -> Sequence[TranscriptMessage]:
+    raise ListingNotConfiguredError(
+        "no transcript reader is installed; it is supplied at application construction time"
+    )
+
+
 def create_ui_router(
     listing: PendingApprovalListing | None = None,
     *,
     describe_providers: DescribeProviders | None = None,
     choose_provider: ChooseProvider | None = None,
+    list_sessions: SessionListing | None = None,
+    read_transcript: TranscriptReader | None = None,
 ) -> APIRouter:
-    """Build the page, listing and model-selection routes.
+    """Build the page, listing, conversation and model-selection routes.
 
     All of them are on one router because all of them exist for the same reader, and splitting them
-    would mean three things to include in `create_app` for one feature. The provider handlers are
-    optional and keyword-only, so every existing caller — including the contract tests that build an
-    app with nothing installed — keeps working unchanged.
+    would mean five things to include in `create_app` for one feature. The provider and conversation
+    handlers are optional and keyword-only, so every existing caller — including the contract tests
+    that build an app with nothing installed — keeps working unchanged.
     """
     resolved = listing or _unconfigured_listing
     describe = describe_providers or _unconfigured_describe
     choose = choose_provider or _unconfigured_choose
+    sessions = list_sessions or _unconfigured_sessions
+    transcript = read_transcript or _unconfigured_transcript
     router = APIRouter(tags=["ui"])
 
     @router.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -236,6 +342,56 @@ def create_ui_router(
                 status_code=501,
                 content={"error": {"kind": "NotImplemented", "detail": str(exc)}},
             )
+
+    @router.get("/api/sessions", response_model=SessionList)
+    async def sessions_for_user(
+        user_id: str = Query(min_length=1, max_length=200),
+    ) -> object:
+        """This user's conversations, newest first — what a front end resumes from.
+
+        ``user_id`` is required for the same reason `/api/approvals` requires it, and the exposure
+        is the same shape one level up: without it this would hand a caller the opening line of every
+        conversation in the system, which is a transcript leak with a friendly summary on top.
+
+        Deliberately not paginated. Twenty rows is the whole menu for a chat sidebar, and the case
+        beyond it wants a search rather than a longer list — a cursor here would complicate the only
+        caller to serve a scroll nobody asked for.
+        """
+        try:
+            found = await sessions(user_id)
+            return SessionList(sessions=list(found))
+        except ListingNotConfiguredError as exc:
+            return JSONResponse(
+                status_code=501,
+                content={"error": {"kind": "NotImplemented", "detail": str(exc)}},
+            )
+
+    @router.get("/api/sessions/{session_id}/messages", response_model=Transcript)
+    async def session_transcript(
+        session_id: str = Path(min_length=1, max_length=200),
+        user_id: str = Query(min_length=1, max_length=200),
+    ) -> object:
+        """One conversation's messages, oldest first — what a chat redraws to resume it.
+
+        Both identifiers are required, and the user id is not merely a filter here. Without it this
+        endpoint would serve any conversation to anyone who could guess an id, and a session id is
+        not a secret — the page shows the current one, and it appears in logs. The owner check is
+        the reader's, deliberately: it is the layer that can scope the query, and putting it in the
+        route would leave a second call site able to forget it.
+
+        A conversation belonging to somebody else answers with an empty transcript rather than a
+        refusal. That matches `SessionRepository.ensure`, where an id that is not yours must be
+        indistinguishable from one that does not exist — a "forbidden" would turn a guessed id into
+        a way to confirm it exists.
+        """
+        try:
+            found = await transcript(session_id, user_id)
+        except ListingNotConfiguredError as exc:
+            return JSONResponse(
+                status_code=501,
+                content={"error": {"kind": "NotImplemented", "detail": str(exc)}},
+            )
+        return Transcript(session_id=session_id, messages=list(found))
 
     @router.get("/api/info", response_model=ServiceInfo)
     async def info(request: Request) -> ServiceInfo:

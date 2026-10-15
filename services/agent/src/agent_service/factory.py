@@ -60,10 +60,17 @@ from agent_service.api.approval_routes import (
 from agent_service.api.cancel_routes import CancelHandler, CancelResult
 from agent_service.api.models import InvocationRequest, InvocationResponse, PendingApproval
 from agent_service.api.provider_control import ProviderControl
-from agent_service.api.ui_routes import PendingApprovalListing
+from agent_service.api.ui_routes import (
+    PendingApprovalListing,
+    SessionListing,
+    SessionSummary,
+    TranscriptMessage,
+    TranscriptReader,
+)
 from agent_service.config import Settings, get_settings
 from agent_service.db.base import create_session_factory, register_sqlite_pragmas
 from agent_service.db.repositories.approvals import ApprovalRepository
+from agent_service.db.repositories.sessions import SessionRepository
 from agent_service.db.repositories.traces import TraceRepository
 from agent_service.mcp.client import TicketingMcpClient, ToolCallResult
 from agent_service.observability import EXECUTION, Tracer
@@ -446,6 +453,73 @@ def build_pending_listing(
     return listing
 
 
+def build_session_listing(*, sessions: sessionmaker[Session]) -> SessionListing:
+    """The listing a chat front end resumes a conversation from.
+
+    Reads a user's conversations through the repository and maps each to the API shape here, in the
+    composition root — the same split `build_pending_listing` uses for a proposal, and for the same
+    reason: the repository should not know the wire, and the route should not know a database
+    exists. This function is the one conversion in between.
+
+    Why the capability exists at all: `CONTRACT.md` is one request in and one reply out, so the
+    contract has nowhere to ask "which conversations do I have?". A front end without it can only
+    continue the conversation it is already in — every reload stranded the previous one, which is
+    exactly what the Chainlit chat did before this was added.
+    """
+
+    async def listing(user_id: str) -> Sequence[SessionSummary]:
+        with sessions() as session:
+            rows = SessionRepository(session).for_user(user_id=user_id)
+
+        return [
+            SessionSummary(
+                session_id=row.session_id,
+                messages=row.messages,
+                last_at=row.last_at,
+                preview=row.preview,
+            )
+            for row in rows
+        ]
+
+    return listing
+
+
+def build_transcript_reader(*, sessions: sessionmaker[Session]) -> TranscriptReader:
+    """The read a chat front end redraws a resumed conversation from.
+
+    The second half of "select a conversation", and it is not optional for the same reason the
+    listing was not: an agent that continues a conversation the front end cannot display gives a
+    person an empty screen and full history, which looks exactly like the conversation was lost.
+    Resuming is only honest if the transcript comes with it.
+
+    Scoped by user in the *reader*, not in the route. The route has the user id in hand, but the
+    layer that can put it in the `WHERE` clause is this one — and a transcript is the most sensitive
+    read in the service, so the check belongs where a later call site cannot forget it.
+
+    A session id that is not this user's yields an empty transcript rather than an error, matching
+    `SessionRepository.ensure`: an id that is not yours must be indistinguishable from one that
+    does not exist, or the endpoint becomes a way to confirm that somebody else's conversation is
+    real.
+    """
+
+    async def read(session_id: str, user_id: str) -> Sequence[TranscriptMessage]:
+        with sessions() as session:
+            rows = SessionRepository(session).transcript(session_id, user_id=user_id)
+
+        return [
+            TranscriptMessage(
+                sequence=row.sequence,
+                role=row.role,
+                content=row.content,
+                tool_name=row.tool_name,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+
+    return read
+
+
 def build_cancel_handler(*, runs: InflightRegistry) -> CancelHandler:
     """Turn a cancel request into a token being set on a running turn.
 
@@ -547,6 +621,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         ),
         decision_handler=build_decision_handler(decide=decide, sessions=sessions),
         pending_approvals=build_pending_listing(sessions=sessions),
+        # The chat front end's conversation picker. Same wiring shape as the proposal listing: the
+        # repository reads, this module converts, the route serves.
+        session_listing=build_session_listing(sessions=sessions),
+        transcript_reader=build_transcript_reader(sessions=sessions),
         cancel_handler=build_cancel_handler(runs=runs),
         # The page's provider picker, reading and writing the same registry the loop uses, so a
         # chip that names a model and a turn that uses one cannot disagree.

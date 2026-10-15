@@ -45,6 +45,8 @@ from .ui_routes import (
     ChooseProvider,
     DescribeProviders,
     PendingApprovalListing,
+    SessionListing,
+    TranscriptReader,
     create_ui_router,
 )
 
@@ -99,6 +101,8 @@ def create_app(
     invocation_handler: InvocationHandler | None = None,
     decision_handler: DecisionHandler | None = None,
     pending_approvals: PendingApprovalListing | None = None,
+    session_listing: SessionListing | None = None,
+    transcript_reader: TranscriptReader | None = None,
     cancel_handler: CancelHandler | None = None,
     describe_providers: DescribeProviders | None = None,
     choose_provider: ChooseProvider | None = None,
@@ -124,6 +128,8 @@ def create_app(
         pending_approvals,
         describe_providers=describe_providers,
         choose_provider=choose_provider,
+        list_sessions=session_listing,
+        read_transcript=transcript_reader,
     )
 
     app = FastAPI(

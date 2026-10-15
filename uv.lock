@@ -55,6 +55,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "python-dotenv" },
     { name = "ruff" },
     { name = "ticketing-mcp" },
 ]
@@ -69,6 +70,7 @@ dev = [
     { name = "pytest", specifier = ">=8.4" },
     { name = "pytest-asyncio", specifier = ">=1.0" },
     { name = "pytest-cov", specifier = ">=6.2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "ruff", specifier = ">=0.12" },
     { name = "ticketing-mcp", editable = "services/mcp-ticketing" },
 ]

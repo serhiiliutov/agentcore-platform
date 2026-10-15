@@ -22,6 +22,7 @@ would mean the transcript and the payload could disagree, and only one of them i
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 
@@ -36,6 +37,67 @@ from agent_service.providers.base import Message as ProviderMessage, ToolCallReq
 #: conversation would otherwise grow the prompt without limit, and because the interesting
 #: context is nearly always the recent part.
 DEFAULT_HISTORY_LIMIT = 40
+
+#: How many of a user's conversations a listing returns. Bounded because a picker is a menu, not an
+#: archive: somebody resuming a conversation wants the last handful, and a thousand-row dropdown is
+#: unusable in a way that "load more" is not.
+DEFAULT_SESSION_LIMIT = 20
+
+#: How much of a conversation's opening line a preview carries. Long enough to recognise the
+#: conversation by, short enough that twenty of them fit in one message.
+PREVIEW_CHARS = 80
+
+#: How many stored messages a transcript read returns. Larger than the picker's limit because a
+#: conversation is the thing somebody asked to see, not a menu of them — but still bounded, since a
+#: front end rendering ten thousand messages is a worse experience than one rendering the last two
+#: hundred.
+DEFAULT_TRANSCRIPT_LIMIT = 200
+
+
+@dataclass(frozen=True)
+class SessionOverview:
+    """One conversation, as a picker needs to show it.
+
+    A dataclass rather than the API model, because this layer does not know the wire — and the
+    mapping between the two belongs where the other repository-to-response mappings live, in the
+    composition root. `as_pending_approval` is the same split for the same reason.
+    """
+
+    session_id: str
+    #: How many stored turns it holds — the user's and the assistant's together.
+    messages: int
+    #: When it was last written to. A session always has at least one message to appear here, so
+    #: this is never ``None`` in practice; the type keeps the aggregate honest.
+    last_at: datetime | None
+    #: The opening of the first thing the *user* said, which is what a person recognises.
+    preview: str
+
+
+@dataclass(frozen=True)
+class TranscriptEntry:
+    """One stored message, as a front end replaying a conversation needs it.
+
+    Deliberately closer to the row than to the provider's `Message`. A `Message` is lossy on
+    purpose — it carries only what a provider needs to see — while a replay has to show a person
+    what actually happened, which means keeping the sequence, the timestamp and the tool's name.
+    The two reads share a table and nothing else.
+
+    **What a conversation contains is decided elsewhere, and it is worth knowing here.**
+    ``agent/handler.py::_turn_messages`` stores the prompt and the final answer and nothing in
+    between — deliberately, so that memory stays a conversation rather than a transcript — so in
+    practice every row reaching this read is a user or an assistant turn and ``tool_name`` is
+    ``None`` throughout. The field is kept because the column exists and a row carrying one would
+    otherwise be silently dropped, not because tool calls are expected here.
+    """
+
+    sequence: int
+    #: ``system``, ``user``, ``assistant`` or ``tool``. Passed through as a string rather than
+    #: narrowed here, because the only consumer is a front end deciding how to render it.
+    role: str
+    content: str
+    #: Set on a tool call or a tool result, so a replay can label the row instead of showing JSON.
+    tool_name: str | None
+    created_at: datetime | None
 
 
 class SessionRepository:
@@ -154,12 +216,158 @@ class SessionRepository:
             .where(Message.session_id == session_id, Message.user_id == user_id)
         ).scalar_one()
 
+    def for_user(
+        self, *, user_id: str, limit: int = DEFAULT_SESSION_LIMIT
+    ) -> tuple[SessionOverview, ...]:
+        """This user's conversations, most recently active first.
+
+        A read the Runtime contract has no room for: `CONTRACT.md` is one request in and one reply
+        out, so nothing in it ever asks "which conversations do I have?". Without this a front end
+        can only continue the conversation it happens to be in, and every reload strands the
+        previous one — which is exactly what the Chainlit front end did until this existed.
+
+        Ordered by the newest message in each session rather than by the session row's own age, and
+        the two differ in the case that matters: what a person recognises is the conversation they
+        were *last* in, not the one they started first.
+
+        Scoped by ``user_id`` like every other read here, and that is the point of the endpoint
+        rather than a detail — a listing that leaked would show one person another's conversations a
+        line at a time, opening lines included.
+
+        Two queries rather than one, and deliberately not one per row: the aggregate gives counts
+        and ordering, then the opening lines are read for those sessions alone. A preview fetched
+        inside a loop is the shape this would drift into, and against a single table it is easy not
+        to notice.
+        """
+        # `Message` alone is enough. A conversation is a thing that has messages, so a session row
+        # with none is not something a picker should offer to resume — which also keeps this from
+        # having to know anything about `ChatSession`.
+        recent = self._session.execute(
+            select(
+                Message.session_id,
+                func.count().label("messages"),
+                func.max(Message.created_at).label("last_at"),
+            )
+            .where(Message.user_id == user_id)
+            .group_by(Message.session_id)
+            .order_by(func.max(Message.created_at).desc())
+            .limit(limit)
+        ).all()
+        if not recent:
+            return ()
+
+        openings = self._openings(user_id=user_id, session_ids=[row.session_id for row in recent])
+
+        return tuple(
+            SessionOverview(
+                session_id=row.session_id,
+                messages=row.messages,
+                last_at=row.last_at,
+                preview=openings.get(row.session_id, ""),
+            )
+            for row in recent
+        )
+
+    def transcript(
+        self,
+        session_id: str,
+        *,
+        user_id: str,
+        limit: int = DEFAULT_TRANSCRIPT_LIMIT,
+    ) -> tuple[TranscriptEntry, ...]:
+        """One conversation's stored messages, oldest first, for a front end to redraw.
+
+        Why this exists beside `history`, which reads the same table: they answer different
+        questions and must not converge. `history` is what the *model* is shown — provider-shaped,
+        lossy, capped tight because a long conversation costs tokens — while this is what a *person*
+        is shown: every row, in order, with the tool name and the timestamp. Serving a replay from
+        `history` would silently drop the middle of a long conversation and render the model's view
+        as if it were the whole truth.
+
+        Scoped by ``user_id`` for the same reason the listing is, and the consequence of getting it
+        wrong is worse here: a listing leaks opening lines, a transcript leaks the conversation. A
+        session belonging to somebody else therefore reads as an empty transcript rather than as a
+        refusal — the same non-oracle `ensure` documents, where an id that is not yours must be
+        indistinguishable from one that does not exist.
+
+        The newest ``limit`` rows, then reversed. Bounding the newest end is what keeps a very long
+        conversation useful: the beginning is what a person already knows, and the end is what they
+        came back for.
+        """
+        rows = (
+            self._session.execute(
+                select(Message)
+                .where(Message.session_id == session_id, Message.user_id == user_id)
+                .order_by(Message.sequence.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+
+        return tuple(
+            TranscriptEntry(
+                sequence=row.sequence,
+                role=row.role,
+                content=row.content,
+                tool_name=row.tool_name,
+                created_at=row.created_at,
+            )
+            for row in reversed(rows)
+        )
+
+    def _openings(self, *, user_id: str, session_ids: Sequence[str]) -> dict[str, str]:
+        """The first thing the *user* said in each of these sessions, truncated.
+
+        The user's own words rather than the assistant's or a tool result's, because the opening
+        prompt is what somebody recognises a conversation by — "the printer one" is a sentence they
+        typed, not one they were answered with.
+
+        Ranked with a window function rather than read and filtered in Python: the first user
+        message is one row out of however many the conversation holds, and reading them all to keep
+        twenty would make this read grow with the transcript it is summarising.
+        """
+        ranked = (
+            select(
+                Message.session_id.label("session_id"),
+                Message.content.label("content"),
+                func.row_number()
+                .over(partition_by=Message.session_id, order_by=Message.sequence)
+                .label("position"),
+            )
+            .where(
+                Message.user_id == user_id,
+                Message.session_id.in_(session_ids),
+                Message.role == "user",
+            )
+            .subquery()
+        )
+
+        rows = self._session.execute(
+            select(ranked.c.session_id, ranked.c.content).where(ranked.c.position == 1)
+        ).all()
+        return {row.session_id: _preview(row.content) for row in rows}
+
     def _next_sequence(self, session_id: str) -> int:
         """The next position in this session, starting at 1."""
         highest = self._session.execute(
             select(func.max(Message.sequence)).where(Message.session_id == session_id)
         ).scalar_one_or_none()
         return (highest or 0) + 1
+
+
+def _preview(content: str) -> str:
+    """The opening of a conversation, on one line and bounded.
+
+    Whitespace is collapsed first, because a prompt with a newline in it would otherwise render as
+    several lines in a list where every row is meant to be one. Truncation is at a character count
+    rather than a word, so twenty previews cannot vary wildly in length — and the ellipsis is
+    appended only when something was actually cut, so a short prompt reads as itself.
+    """
+    collapsed = " ".join(content.split())
+    if len(collapsed) <= PREVIEW_CHARS:
+        return collapsed
+    return collapsed[: PREVIEW_CHARS - 1].rstrip() + "…"
 
 
 def _stored_call(message: ProviderMessage) -> tuple[str | None, str | None]:
