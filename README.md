@@ -152,14 +152,25 @@ from the model control in the chat header, which stores it in the `provider_sett
 still in force after a restart of either process. Nothing on either path can supply a key — the key is
 read from the environment and nowhere else.
 
-| Provider | Purpose | Needs |
+The model control in the chat is **not** a menu of everything the code supports. It lists only the
+providers *this process can actually build*, which is the agent's own answer to `GET /api/providers` — so
+a row below whose requirement is unmet is simply absent from the picker rather than present and broken:
+
+| Provider | Appears in the chat when | Purpose |
 |---|---|---|
-| `openai` | **the reference live provider — `gpt-4o`** | `OPENAI_API_KEY` |
-| `scripted` | deterministic rules — the **agent's** default, and what the evals run on | nothing |
-| `replay` | replays a recorded live run | a recording, no key |
-| `anthropic` | Claude, native tool use | `ANTHROPIC_API_KEY` |
-| `openai_compatible` | any OpenAI-shaped endpoint: Ollama, vLLM, LM Studio, Groq | usually `OPENAI_BASE_URL` |
-| `bedrock` | Amazon Bedrock Converse API | AWS credentials |
+| `scripted` | always | deterministic rules — the **agent's** default, and what the evals run on |
+| `openai` | `OPENAI_API_KEY` is set | **the reference live provider — `gpt-4o`** |
+| `anthropic` | `ANTHROPIC_API_KEY` is set | Claude, native tool use |
+| `bedrock` | `AWS_REGION` is set | Amazon Bedrock Converse API |
+| `openai_compatible` | `OPENAI_BASE_URL` is set | any OpenAI-shaped endpoint: Ollama, vLLM, LM Studio, Groq |
+| `replay` | a recording is present at `AGENT_MODEL_ID` | a recorded run replayed verbatim — a test instrument, not a chat option |
+
+That is why a default deployment offers so few: `scripted` is unconditional, and the rest appear one
+credential at a time. **Adding a provider to the UI is setting its credential and recreating the agent,
+not editing the front end** — `anthropic` shows up the moment `ANTHROPIC_API_KEY` is non-empty, because
+the picker is built from what the agent says it can build. `replay` is the one to ignore in a chat: it
+needs a recording file rather than a key, it exists so the eval suite can assert against a real model's
+verbatim output, and with no recording configured it is withheld.
 
 Two provider problems are reported to you rather than raised, because both are configuration rather than
 bugs, and the agent keeps serving: a provider with no key is not offered by the model control at all, and
