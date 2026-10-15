@@ -1,0 +1,55 @@
+# ============================================================================
+# Chainlit configuration for the helpdesk chat front end.
+#
+# Chainlit resolves this directory from the **current working directory**, not from the app file:
+# `APP_ROOT = os.getenv("CHAINLIT_APP_ROOT", os.getcwd())` in its `config.py`. That is precisely why
+# `devtasks chat` runs with `cwd=services/chat`, and why a copy of this file at the repository root
+# would silently take precedence over this one.
+#
+# Only the settings this app depends on are stated. Everything else is Chainlit's default, and
+# leaving it unstated is deliberate: a config file that restates two hundred defaults cannot be read,
+# and the ones that matter stop standing out.
+# ============================================================================
+
+[project]
+# No environment variables are requested from the user, and that is a security property rather than
+# an omission. The agent is the only component holding a model credential, and it reads it from its
+# own environment. A front end that asked a user to paste a key would create a second place a
+# credential lives — in a browser and in a chat database — when the point of this architecture is
+# that there is exactly one.
+user_env = []
+
+[features]
+# Chainlit's default, restated because this app renders text that came from a backend: tool
+# arguments, ticket titles, ticket bodies and error sentences. Rendering any of it as HTML would
+# make a ticket description an injection vector.
+unsafe_allow_html = false
+
+# No endpoint accepts an upload — the agent's contract is a prompt string. Leaving uploads enabled
+# would let a user attach a file and watch nothing happen, which reads as a broken app rather than
+# as an unimplemented feature.
+[features.spontaneous_file_upload]
+enabled = false
+
+# Chainlit can act as an MCP client. This app must not. The agent is the only component that talks
+# to the ticketing system, and intercepting its write tools is what the approval gate *is* — a
+# second route to a tool, opened from the browser, would bypass the gate entirely rather than
+# duplicate it.
+[features.mcp]
+enabled = false
+
+[UI]
+# Shown in the header and the browser tab. Unset, it reads "Assistant", which says nothing about
+# what is on the other end.
+name = "AgentCore Helpdesk"
+
+# The tool calls are the point of this UI: the assignment is about the agent choosing a tool and
+# stopping before a write. "full" shows each step, including the ones the app creates itself.
+cot = "full"
+
+# Confirmation before clearing the transcript. The conversation is what the agent's next turn reads,
+# so an accidental click would look exactly like the agent losing its memory.
+confirm_new_chat = true
+
+[meta]
+generated_by = "2.12.0"

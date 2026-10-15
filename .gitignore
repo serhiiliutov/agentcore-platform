@@ -59,6 +59,21 @@ yarn-error.log*
 # --- Runtime data (SQLite, JSONL traces, uploads) ---------------------------
 data/
 !data/.gitkeep
+
+# Chainlit's upload directory, created in whatever working directory Chainlit is started from —
+# `services/chat` for `devtasks chat`, whose docstring explains why that cwd is pinned. It is empty
+# for this app, because no endpoint accepts an upload and the feature is switched off in
+# `services/chat/.chainlit/config.toml`; ignoring the directory keeps Chainlit's re-created empty
+# folder out of `git status`.
+.files/
+
+# Chainlit copies its own twenty-three translation files into the app's `.chainlit/translations/`
+# on startup if they are missing (see `ensure_translations` in its `config.py`), so this directory
+# is a generated copy of a dependency's data rather than anything this repository authors. Committing
+# it would add twenty-three files of pure noise, and every Chainlit upgrade would show them as
+# modified. `services/chat/.chainlit/config.toml`, which *is* ours, stays tracked — the negation is
+# what keeps it visible while its sibling directory is ignored.
+services/chat/.chainlit/translations/
 *.sqlite
 *.sqlite3
 *.sqlite3-wal

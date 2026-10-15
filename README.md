@@ -89,7 +89,7 @@ For the development loop:
 uv sync --all-groups     # one environment for the whole workspace
 make help                # every command, with an example
 make doctor              # what is installed, what is configured, what is answering
-make test-unit           # 450 tests, no stack and no credentials needed
+make test-unit           # 511 tests, no stack and no credentials needed
 make eval                # starts its own stack and runs the 22 cases (exit 1 on any failure)
 ```
 
@@ -121,10 +121,26 @@ docker compose down                # stop; add -v to drop the data volume too
 The page is served by the agent container itself — there is no separate web service, no nginx and no
 front-end build. `make doctor` prints what is installed, what is configured and what is answering.
 
+**Or drive it from a chat UI.** `services/chat/` is a Chainlit front end over exactly the same HTTP
+API: the conversation as a message history, each tool call as a collapsible step, and the approval as
+two buttons *in the chat* rather than a card below it. It needs the agent already running:
+
+```powershell
+docker compose up -d --wait
+uv run python -m devtasks chat      # http://localhost:8001  (same as: make chat)
+```
+
+It is its own uv project, with its own lock and its own environment, and that is a hard requirement
+rather than tidiness: **Chainlit 2.12 requires `mcp<2` while this workspace's MCP server requires
+`mcp>=2`**, so a single shared resolution has to downgrade `mcp` and the MCP server stops importing.
+The app reaches the agent over HTTP and imports none of it, so the two environments never need to
+agree on anything. Nothing is installed by hand — `devtasks chat` creates and locks that environment
+on first use.
+
 **Test it.** Three levels, none of which needs a key:
 
 ```powershell
-uv run python -m devtasks test-unit         # 450 tests in ~7s: no stack, no credentials
+uv run python -m devtasks test-unit         # 511 tests in ~12s: no stack, no credentials
 uv run python -m devtasks eval              # 22 cases, its own stack, exit 1 on any failure
 uv run python -m devtasks test-integration  # the 4 tests that need the stack from the line above
 ```
@@ -157,20 +173,54 @@ Invoke-RestMethod http://localhost:8080/invocations/approvals/<approval_id>/deci
 Say `"no thanks"` instead and nothing is written; ask something unrelated and the proposal stays
 pending and comes back on the response. `eval/cases.json` asserts exactly those three answers.
 
-**Switch models.** One environment variable, read once when the process starts:
+**Switch models.** Two ways, one mechanism: a provider is named, and its credential comes from the
+environment. Neither path can supply a key.
+
+*At startup*, with one environment variable:
 
 ```powershell
-$env:ANTHROPIC_API_KEY = 'sk-ant-...'      # or OPENAI_API_KEY; OPENAI_BASE_URL for a local model
-$env:AGENT_MODEL_PROVIDER = 'anthropic'    # scripted | replay | anthropic | openai |
+$env:OPENAI_API_KEY = 'sk-...'             # or ANTHROPIC_API_KEY; AWS_REGION for bedrock
+$env:AGENT_MODEL_PROVIDER = 'openai'       # scripted | replay | anthropic | openai |
                                            # openai_compatible | bedrock
 docker compose up -d agent                 # recreate the agent with the new environment
 ```
 
-`AGENT_MODEL_ID` names a specific model and is empty by default, meaning the provider's own default.
-There is no runtime switch and no provider picker: the choice is read once while the application is
-built, so changing it is an environment change and a restart, and a provider selected without what it
-needs is refused at startup with a message naming it. Full table, per-provider examples, and the
-local-model caveat: section c and `.env.example`.
+*While it is running*, from the model control in the top right of `/`. That writes the choice to the
+`provider_settings` table, so it applies to the next message and survives a restart of either
+process. A stored choice this process can no longer build — a key that was removed — is refused with
+a log line naming the provider, and the configured one is kept instead, because a preference must
+never be able to stop the service from starting.
+
+**One predefined model per provider**, so a deployment does not have to know which model ids exist to
+get a working agent:
+
+| Provider | Model it uses, unless `AGENT_MODEL_ID` says otherwise |
+|---|---|
+| `openai` | `gpt-4o` — chosen for tool-calling reliability |
+| `bedrock` | `anthropic.claude-3-7-sonnet-20250219-v1:0` (a region serving Claude only through an inference profile needs the `eu.`/`us.` prefix; set `BEDROCK_MODEL_ID`) |
+| `anthropic` | `claude-sonnet-4-5` |
+| `scripted`, `replay` | no model — they answer deterministically, which is what CI and the evals run on |
+
+The control's model field accepts any id the endpoint actually serves: the pinned value is a working
+default, not a whitelist.
+
+Two provider problems are reported to you rather than raised, because both are configuration rather
+than bugs, and the agent keeps serving:
+
+* **No credential.** A provider with no key in the environment is not offered by the model control at
+  all, and selecting one at startup fails with a sentence naming the variable to set. The alternative
+  — a picker that appears to work and then fails — is worse than one that is honest about what is
+  available.
+* **No quota or credit left.** A provider answering `429` is reported as an account constraint —
+  "rate-limiting this key, which usually means the account has no remaining quota" — rather than as a
+  bad credential, because the request *was* authenticated. For Bedrock this needed fixing rather than
+  documenting: boto3 reports failures by raising and sets no HTTP status, so
+  `ServiceQuotaExceededException` and `ThrottlingException` were reaching the loop as anonymous
+  errors and getting the generic "check the credential" advice. The provider now translates them
+  (and `AccessDeniedException`, `ResourceNotFoundException`, `ValidationException`) into the status
+  the loop's hints are keyed by.
+
+Full table, per-provider examples and the local-model caveat: section c and `.env.example`.
 
 **Read it.** In this order. Each file is self-contained; the first two tell you where everything else
 lives.
@@ -268,8 +318,10 @@ budget is exhausted, with one interception layer that turns a write call into a 
 of state it touches is a table I can query, so "why did this run do that?" is answered with SQL rather
 than by reading a framework's internals.
 
-**Providers** are selected by configuration, per process — one provider answers for the whole service,
-and a different one means changing the environment and restarting:
+**Providers** are selected at runtime and the choice is stored — one provider answers at a time for
+the whole process, and a different one is either an environment change and a restart, or a click in
+the page's model control, which persists the choice in the `provider_settings` table so it is still in
+force after the process restarts:
 
 | Provider | Purpose | Needs a key |
 |---|---|---|
@@ -280,13 +332,53 @@ and a different one means changing the environment and restarting:
 | `openai_compatible` | **any** OpenAI-shaped endpoint: Ollama, vLLM, LM Studio, Groq, Together | usually no |
 | `bedrock` | Amazon Bedrock Converse API | AWS credentials |
 
-`scripted` is not a workaround for not having a key — it is what makes the eval suite reproducible
-and free enough to run on every commit, and it is why every screenshot in this repository can be
-regenerated. Keys are `SecretStr` so a `repr()` in a log or a trace shows `**********`, and no key, key
-prefix or fingerprint is published by any endpoint. There is no provider picker and no runtime switch:
-choosing a provider is the environment change and restart the runbook describes, and one selected
-without what it needs is refused while the application is built — with a message naming it — rather
-than failing three turns into a conversation.
+**Why two of the six answer without a model — and why that is not a substitute for one.** The
+assignment never asks for this. It asks for a **swappable** provider, for the project to run **without
+an AWS account**, and for **evals that catch a regression**. Those three requirements are what
+`scripted` and `replay` exist to satisfy, and neither one is an agent: the model does the reasoning,
+and these two are test instruments. It is worth being exact about how they differ from each other,
+because the difference is the reason both are kept:
+
+| | `scripted` | `replay` |
+|---|---|---|
+| What it does | **decides** — manufactures a turn from ordered rules | **obeys** — reproduces a turn a real model produced |
+| Its input | the conversation, as a pure function of it | nothing; it returns the recording in order |
+| What it proves | the loop handles a tool call its author thought of | the loop handles what a model *actually* emits |
+| When exhausted | falls through to a plain answer | **raises**, so a non-terminating loop cannot hide |
+
+`replay` is therefore not an alternative to an LLM — it is *a recording of one*. Its reason to exist is
+that a real model emits shapes an author does not imagine: malformed JSON in a tool argument, two tool
+calls in one turn, an empty content block beside a call, a `stop_reason` that disagrees with the calls
+present. A recorded run carries those verbatim into a committed fixture, so the loop is tested against
+reality rather than against its author's imagination — still with no key, no network and no cost.
+
+Three things follow, and together they are the argument:
+
+- **A regression gate has to be deterministic.** One of the four required eval families is "the right
+  tool chosen". Graded against a live model that is a probabilistic assertion: it passes until the model
+  samples differently, and when it does fail it cannot tell you whether your tool description regressed
+  or the model simply had a different afternoon. A gate that is itself non-deterministic is not a gate.
+- **The bare checkout has to run.** The assignment states that no AWS account is needed. A stack in
+  which every provider demands a credential is a stack a reviewer cannot start — which is why
+  `docker compose up` works with no configuration at all.
+- **The architecture has to be testable apart from the model.** What this project is scored on —
+  behaving correctly across a restart, the approval gate, retry and idempotency, the turn deadline — is
+  ordinary code. Driving all of it through a model would give every failure two possible causes and
+  charge money to find out which. That is why 511 tests run in twelve seconds for free, and why the four
+  live providers are covered by unit tests against recorded payloads instead.
+
+The honest risk, since it is real: a reviewer who never changes provider sees a rules engine and could
+conclude the intelligence is absent. Three things are in place to prevent that — the page header names
+the provider in force, switching is one environment variable and a container recreate, and the model
+control changes it at runtime with no restart. Section e names the converse gap as well: every eval case
+runs on `scripted`, so none of them asserts anything about a live model's *judgement*.
+
+Keys are `SecretStr` so a `repr()` in a log or a trace shows `**********`, and no key, key
+prefix or fingerprint is published by any endpoint. The model control names *which* configured
+provider answers; it cannot supply a key, and no endpoint accepts one. A provider selected without
+what it needs is refused with a sentence naming it — at startup while the application is built, or by
+the control itself, which offers only the providers this process can actually construct — rather than
+failing three turns into a conversation.
 
 The honest limitation, measured rather than assumed: local inference here means a ~3B model on CPU
 (4 GB GPU with no Windows container pass-through, 16 GB RAM), which is slow and unreliable at tool
@@ -458,10 +550,14 @@ live model: the cases assert deterministic tool choices, which is what makes the
 
 Named rather than implied, because a suite's gaps matter more than its pass count:
 
-- **Live-model behaviour.** Every case runs on `scripted`. The live providers are covered by unit
-  tests against recorded payloads, which verifies the message translation and tool-call parsing but
-  nothing about judgement. A live run is a different exercise, and
-  no live run is recorded here: the development host has no model credential.
+- **Live-model behaviour.** Every case runs on `scripted`, deliberately: a case asserting "the right
+  tool was chosen" against a live model is a probabilistic assertion, and a gate that fails one run in
+  twenty cannot gate. The live providers are covered by unit tests against recorded payloads, which
+  verifies the message translation and tool-call parsing but nothing about judgement. A live provider
+  is configured and reachable for manual testing — the running service reports which provider is in
+  force at `GET /api/providers`, and README section c says how to switch — but **no live case is
+  committed**, because committing one would make this suite non-deterministic. `replay` is the
+  mechanism for bringing a real model's actual output into the suite without that cost.
 - **Latency and cost.** Nothing asserts a ceiling on either. The turn deadline is tested by
   exhausting it deliberately, not by measuring a real slow run end to end.
 - **Concurrency.** Two turns in one session at once, or two instances sharing the database, are
@@ -602,10 +698,10 @@ Four further decisions that did not need an ADR but carry weight:
 
 **Followed, and enforced by a command:**
 
-- **mypy in strict mode** across the services, the tests and the dev tooling — 105 files, no `any` in
+- **mypy in strict mode** across the services, the tests and the dev tooling — 115 files, no `any` in
   signatures, and no `# type: ignore` that is not explained.
 - **ruff** for lint and formatting, with the ruleset pinned in `pyproject.toml`.
-- **450 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
+- **511 tests** that need no stack, no key and no network (unit and contract, plus the eval scorer's
   own tests), and integration tests against the composed stack for the rest.
 - **Small modules with docstrings that explain *why*.** The docstrings are the design document at the
   code level: why spans are not rows, why a cancel does not interrupt a write, why an open span
@@ -648,7 +744,7 @@ AI-assisted engineering are specific and predictable:
 
 | Failure mode | The control that catches it here |
 |---|---|
-| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 450 tests, and integration tests against the composed stack, all green before any commit |
+| Code that is plausible, reads well, and is wrong | the gates are commands, not opinions: `ruff`, `mypy --strict`, 511 tests, and integration tests against the composed stack, all green before any commit |
 | Confident documentation that describes what was intended rather than what exists | every number in the docs is copied from real output; docs are written *after* the thing and against the running system. This caught six architecture documents that were linked and never written |
 | A feature that works and is unreachable from the running system | each stage's definition of done is exercised through the real surface — over HTTP, in a container, with a browser. This caught the web page (stage 11) and the CI compose file (stage 14) both existing and being unreachable |
 | Scope drifting toward what is easy to generate | a plan of record written first, one piece of work at a time, each with what it would produce and how it would be checked |
@@ -758,7 +854,8 @@ agentcore-platform/
 ├── services/
 │   ├── agent/                    the AgentCore Runtime workload (port 8080)
 │   │   └── ui/                   the page, served by the agent itself at `/`
-│   └── mcp-ticketing/            the MCP server for tickets (port 8081)
+│   ├── mcp-ticketing/            the MCP server for tickets (port 8081)
+│   └── chat/                     a Chainlit front end; its OWN uv project (port 8001)
 ├── tests/                        unit, contract, and integration tests
 └── docs/
     ├── plan/                     MASTER-PLAN.md, conventions, and a log per stage
@@ -797,6 +894,7 @@ Run `make help` for the full list with examples. The ones that matter:
 | `make typecheck` | mypy, strict |
 | `make migrate` | apply database migrations |
 | `make eval` | run the eval suite and print a pass/fail table |
+| `uv run python -m devtasks chat` | run the Chainlit chat front end on :8001 — needs the agent up |
 | `make screenshots` | capture the run into `docs/media/` (`ARGS=--failure` for the fault case) |
 | `make up-ci` / `make down-ci` | the CI stack, on its own compose project |
 | `make ci` | lint + typecheck + unit tests + secret scan + evals |

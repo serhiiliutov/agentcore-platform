@@ -413,6 +413,52 @@ def serve(extra: Sequence[str] = ()) -> int:
     return run([sys.executable, "-m", "agent_service", *extra], cwd=AGENT_DIR, env=_local_env())
 
 
+#: Where the chat front end listens. Deliberately not Chainlit's default 8000, and that is a
+#: collision rather than a preference: the local stack runs the mock ticketing API on 8000, so a
+#: chat UI on the same port would refuse to start at exactly the moment somebody tried to use it.
+CHAT_PORT = 8001
+
+#: The chat app. Its own uv project, and it can never join this workspace: Chainlit requires
+#: ``mcp<2`` while this workspace's MCP server requires ``mcp>=2``, so a single shared resolution
+#: has to downgrade one of them and the MCP server stops importing. See services/chat/pyproject.toml.
+CHAT_DIR = REPO_ROOT / "services" / "chat"
+
+
+def chat(extra: Sequence[str] = ()) -> int:
+    """Run the Chainlit chat front end against a running agent. Blocking.
+
+    `uv run --project services/chat` rather than this environment's interpreter, because the app
+    lives in its own environment (see ``CHAT_DIR``). That command creates and locks the environment
+    on first use, so there is nothing to install by hand — and, more importantly, it cannot disturb
+    the agent's environment, which is the whole point of the split.
+
+    The agent has to be running (`devtasks serve`, with `devtasks mock` behind it). The app talks to
+    it over HTTP and says so plainly on the page when it cannot reach it, rather than failing in a
+    way that looks like a front-end bug.
+
+    ``cwd=CHAT_DIR``, and it is not cosmetic: Chainlit resolves ``.chainlit/`` and ``.files/``
+    against the **current working directory** — ``APP_ROOT = os.getenv("CHAINLIT_APP_ROOT",
+    os.getcwd())`` in its ``config.py`` — not against the app file. Running from the repository root
+    therefore reads the root's config and writes a ``.files/`` directory there, which is how a stray
+    top-level ``.chainlit/`` appeared. Pinning the cwd keeps both inside the service that owns them.
+    """
+    return run(
+        [
+            *resolve_tool("uv"),
+            "run",
+            "--project",
+            str(CHAT_DIR),
+            "chainlit",
+            "run",
+            str(CHAT_DIR / "app.py"),
+            "--port",
+            str(CHAT_PORT),
+            *extra,
+        ],
+        cwd=CHAT_DIR,
+    )
+
+
 #: The page under capture, and the two turns the assignment asks to see.
 PAGE_URL = "http://127.0.0.1:8080"
 READ_PROMPT = "find tickets about the printer"

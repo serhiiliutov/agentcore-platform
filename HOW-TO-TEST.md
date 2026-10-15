@@ -33,7 +33,7 @@ reply come from the provider, and only there does a real model change the result
 | | |
 |---|---|
 | **Required** | [Docker Desktop](https://www.docker.com/products/docker-desktop/), running. Nothing else. |
-| **Optional** | Python 3.12 + [uv](https://docs.astral.sh/uv/) — only for the automated tests in §6 |
+| **Optional** | Python 3.12 + [uv](https://docs.astral.sh/uv/) — needed for the Chainlit chat in §2.2 and the automated tests in §6. Neither the page nor the stack needs them |
 | **Optional** | A SQLite GUI for §5: DB Browser for SQLite, or the VS Code SQLite Viewer extension |
 
 Check Docker is up before anything else:
@@ -90,7 +90,24 @@ docker compose logs -f agent      # Ctrl+C stops watching; it does not stop the 
 
 ---
 
-## 2. Open the page
+## 2. Pick a front end — both are clients of one API
+
+There are two, and they are interchangeable: both drive the same HTTP contract, so everything in §3
+works identically in either. What differs is what you have to install to get them.
+
+| | The built-in page | The Chainlit chat |
+|---|---|---|
+| URL | <http://localhost:8080/> | <http://localhost:8001> |
+| Where it runs | inside the agent container, served by the agent | on your machine, as a second process |
+| You need | Docker only — it is already serving after §1 | Python 3.12 **and** `uv` on the host |
+| Shows a tool call as | one summary row under the reply | a collapsible step you can open in full |
+| Best for | the fastest look at the agent, and what the screenshots are captured from | reading a conversation and reading exactly what was sent and returned |
+
+Neither one is the "real" front end. The page is served by the agent so that `docker compose up` is a
+complete demo with nothing else installed; the chat is the fuller client and needs `uv`. **§2.1 is the
+page, §2.2 is how to run the chat.**
+
+### 2.1 The built-in page
 
 ```powershell
 start http://localhost:8080/       # or just open that URL in any browser
@@ -112,6 +129,104 @@ What you are looking at:
 
 Nothing is written to the ticketing system until you press **Approve** on a card. That is the point
 of the whole exercise.
+
+---
+
+### 2.2 The Chainlit chat (`services/chat/`)
+
+A step-by-step guide, because unlike the page this one has prerequisites and a first run that takes a
+minute. It is a **client of the agent**, not a second implementation: it holds no state of its own and
+cannot answer anything the agent could not.
+
+**Step 0 — the stack has to be up.** Do §1 first and confirm it:
+
+```powershell
+docker compose ps        # expect three services, all (healthy)
+```
+
+**Step 1 — check `uv` is on the host.** This is the one requirement the page does not have:
+
+```powershell
+uv --version             # not installed? https://docs.astral.sh/uv/
+```
+
+**Step 2 — launch it**, from the repository root:
+
+```powershell
+uv run python -m devtasks chat
+```
+
+The **first run does work before it prints anything**: it resolves and locks a *separate* environment
+for the chat and downloads Chainlit into it. Expect roughly a minute and a dependency progress log —
+it is not waiting for input. Every later run starts in a second or two, because that environment is
+already on disk.
+
+When it is serving, it says so:
+
+```text
+Your app is available at http://localhost:8001
+```
+
+Leave that terminal running; the chat lives in it.
+
+**Step 3 — open it:**
+
+```powershell
+start http://localhost:8001
+```
+
+**Step 4 — send the messages from §3.** They behave exactly as §3 describes, because it is the same
+API. Two presentation differences are the reason to use this front end:
+
+| | The page | The chat |
+|---|---|---|
+| A tool call | one summary row under the reply | a **collapsible step** — open it for the full arguments and the full result, not a summary |
+| An approval | a card below the transcript | **two buttons in the conversation** |
+
+So the two things to try first are the two the assignment turns on:
+
+| Send | What to look for |
+|---|---|
+| `find tickets about the printer` | open the step beneath the reply: it holds the whole `search_tickets` call and its complete result |
+| `open a ticket for the flickering monitor` | the reply stops and two buttons appear. **Nothing is created until you press Approve** — press Decline and the ticket count does not move |
+
+**Step 5 — the model control** is the gear in the header, and it is the same control as the page's:
+it offers only the providers this deployment can actually build (a provider with no credential in the
+environment is absent rather than greyed out), and the **agent** stores the choice, so it outlives a
+restart of either process and the two front ends always agree on it.
+
+**Step 6 — point it at a different agent.** It calls `http://localhost:8080` by default, which is what
+§1 starts:
+
+```powershell
+$env:AGENT_BASE_URL = 'http://localhost:9000'
+uv run python -m devtasks chat
+```
+
+**Step 7 — stop it** with `Ctrl+C` in its terminal. It is a separate process from the stack, so
+stopping it does not touch the agent, and `docker compose down` does not stop it either.
+
+**When it goes wrong:**
+
+| Symptom | Cause and fix |
+|---|---|
+| `error while attempting to bind on address ('0.0.0.0', 8001)` | Something else holds 8001 — usually a previous run of this command. Find it with `Get-NetTCPConnection -LocalPort 8001 -State Listen`, then stop that process id |
+| It says it cannot reach the agent, and prints the URL it tried | The stack from §1 is not up or not healthy. That message is deliberate: it names the URL that failed instead of failing in a way that looks like a front-end bug |
+| The first run seems to hang with no output | It is resolving and downloading the chat's environment. Give it a minute |
+| `uv: command not found` | `uv` is not installed, and this front end needs it on the host — see Step 1 |
+| You want it from scratch | `Remove-Item -Recurse -Force services/chat/.venv` deletes *only* the chat's environment; the next run recreates it and the agent's environment is never touched |
+
+**Why it is a separate environment — a requirement, not tidiness.** Chainlit 2.12 requires `mcp<2`,
+while this repository's MCP server requires `mcp>=2` (`mcp.server.mcpserver` exists only in 2.x). In a
+single workspace the resolver must downgrade `mcp` for *every* member, and the MCP server then stops
+importing altogether. So `services/chat/` is its own uv project with its own lock and its own `.venv`,
+and it reaches the agent over HTTP rather than importing any of it — the two environments never have to
+agree on a single dependency.
+
+**Two ways to run it, and they are the same code.** Step 2 is the explicit form; `make chat` is the
+Makefile target for the same command, for anyone who has GNU Make, and it forwards extra arguments
+(`make chat ARGS="..."`). Both delegate to `uv run python -m devtasks chat`, which is what
+`uv run python -m devtasks help` lists.
 
 ---
 
@@ -333,7 +448,7 @@ These need Python 3.12 and `uv`, not Docker:
 
 ```powershell
 uv sync --all-groups                                                    # once
-uv run python -m devtasks test-unit                                     # 450 tests, ~10s, no stack
+uv run python -m devtasks test-unit                                     # 511 tests, ~12s, no stack
 uv run python -m devtasks eval                                          # 22 cases, starts its own stack, ~45s
 uv run python -m devtasks test-integration                              # 4 tests, needs the stack from §1
 ```
@@ -355,3 +470,4 @@ report to `eval/results/latest.md`. Their `make` equivalents are `make test-unit
 | `/ping` answers but the page is blank | Hard-refresh (Ctrl+F5) — the page is served fresh by the agent, and an old cached copy can mismatch the API. |
 | A message comes back `I have nothing to work from yet.` | The message was empty or only whitespace. Type something. |
 | You want a clean slate | `docker compose down -v` then `docker compose up -d --wait` — containers and data both recreated. |
+| The **Chainlit chat** will not start, or cannot reach the agent | Everything specific to it is in §2.2, under "When it goes wrong" — the common causes are port 8001 already held, the stack in §1 not running, and `uv` not being installed |

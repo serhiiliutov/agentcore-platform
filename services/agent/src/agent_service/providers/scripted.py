@@ -341,15 +341,31 @@ def _query_from(text: str) -> str:
     about the printer" yields "about", which is a real search term only in the sense that the
     API will accept it — it matches nothing and would make every scripted search look empty.
     A test asserts the meaningful word comes back instead.
+
+    Length is *not* the test, and it used to be: this kept only words longer than three
+    characters, which quietly dropped any three-letter subject. "find tickets about the vpn"
+    searched for an empty string, and an empty string is not a search the mock answers — it
+    came back as a response the MCP client could not parse against its own result schema, so a
+    one-word subject produced a tool error that looked like a backend fault. The filter was
+    standing in for "not a filler word", which `_SEARCH_FILLER` already says outright, so what
+    remains below is a floor for one- and two-letter noise ("a", "of", "in", "is") rather than
+    a length rule about meaning.
     """
-    words = [word for word in re.split(r"\W+", text) if len(word) > 3]
+    words = [word for word in re.split(r"\W+", text) if len(word) > 2]
     return next((word for word in words if word not in _SEARCH_FILLER), "")
 
 
 #: Words that carry the request but not the subject. Kept as a set rather than inline so the
 #: intent — "these are not what we are searching for" — is legible.
+#:
+#: This set is why the helper needs no length rule. A length filter looks equivalent and is not:
+#: it removes "the", "for" and "and" as a side effect, and it also removes any short subject. The
+#: two are only interchangeable if the function words are named here, which is what the second
+#: group below is. Without it, "find tickets about the printer" searches for "the" — the exact
+#: failure the old four-character filter was accidentally preventing.
 _SEARCH_FILLER = frozenset(
     {
+        # The request itself.
         "find",
         "search",
         "list",
@@ -358,27 +374,99 @@ _SEARCH_FILLER = frozenset(
         "look",
         "tickets",
         "ticket",
-        "about",
-        "with",
-        "from",
-        "that",
-        "this",
-        "there",
-        "where",
-        "when",
-        "what",
-        "which",
-        "have",
-        "has",
         "need",
         "want",
         "please",
         "help",
         "give",
+        # Articles, prepositions and conjunctions: short, common, and never the subject.
+        "the",
+        "for",
+        "and",
+        "about",
+        "with",
+        "from",
+        "into",
+        "onto",
+        "over",
+        "under",
+        "after",
+        "before",
+        "between",
+        "than",
+        "then",
+        "via",
+        "per",
+        # Pronouns and determiners.
+        "that",
+        "this",
+        "these",
+        "those",
+        "there",
+        "them",
+        "they",
+        "you",
+        "your",
+        "our",
+        "its",
+        "his",
+        "her",
+        "him",
+        "she",
+        "what",
+        "which",
+        "where",
+        "when",
+        "while",
+        "who",
+        "why",
+        "how",
+        # Verbs and adverbs that carry no subject of their own.
+        "have",
+        "has",
+        "had",
+        "are",
+        "was",
+        "were",
+        "not",
+        "but",
+        "can",
+        "may",
+        "will",
+        "would",
+        "should",
+        "could",
+        "did",
+        "does",
+        "done",
+        "get",
+        "got",
+        "see",
+        "put",
+        "let",
+        "use",
+        "make",
+        "made",
+        "own",
+        # Quantifiers and generic qualifiers.
         "some",
         "any",
         "all",
-        "into",
+        "one",
+        "two",
+        "new",
+        "old",
+        "same",
+        "also",
+        "just",
+        "very",
+        "much",
+        "more",
+        "most",
+        "now",
+        "out",
+        "off",
+        "again",
     }
 )
 

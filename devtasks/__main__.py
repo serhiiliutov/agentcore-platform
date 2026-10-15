@@ -58,6 +58,14 @@ COMMANDS: dict[str, tuple[TaskFn, str, str]] = {
     # --- database ----------------------------------------------------------
     "migrate": (tasks.migrate, "alembic upgrade head", "devtasks migrate"),
     "serve": (tasks.serve, "run the agent service (web page at /)", "devtasks serve"),
+    # The Chainlit front end. It runs from its own uv project (see services/chat/pyproject.toml),
+    # and that is the only supported way to start it: Chainlit cannot be installed into the agent's
+    # environment without downgrading `mcp` and breaking the MCP server.
+    "chat": (
+        tasks.chat,
+        f"run the Chainlit chat front end (port {tasks.CHAT_PORT})",
+        "devtasks chat",
+    ),
     "downgrade": (tasks.downgrade, "alembic downgrade (default: base)", "devtasks downgrade base"),
     "revision": (tasks.revision, "autogenerate a migration", 'devtasks revision "add approvals"'),
     # --- evals and housekeeping -------------------------------------------

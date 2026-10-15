@@ -59,6 +59,7 @@ from agent_service.api.approval_routes import (
 )
 from agent_service.api.cancel_routes import CancelHandler, CancelResult
 from agent_service.api.models import InvocationRequest, InvocationResponse, PendingApproval
+from agent_service.api.provider_control import ProviderControl
 from agent_service.api.ui_routes import PendingApprovalListing
 from agent_service.config import Settings, get_settings
 from agent_service.db.base import create_session_factory, register_sqlite_pragmas
@@ -66,7 +67,7 @@ from agent_service.db.repositories.approvals import ApprovalRepository
 from agent_service.db.repositories.traces import TraceRepository
 from agent_service.mcp.client import TicketingMcpClient, ToolCallResult
 from agent_service.observability import EXECUTION, Tracer
-from agent_service.providers.base import ModelProvider, build_provider
+from agent_service.providers.registry import ProviderRegistry
 from agent_service.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,11 @@ class McpToolExecutor:
         result = await self._client.call(name, arguments, timeout_s=effective)
         return ToolOutcome(
             text=result.as_model_text(),
+            # The one-line sentence, for the response rather than for the model. `as_model_text`
+            # carries the returned data as well, because a model given only the sentence invents
+            # what it was not shown — and a page of tickets is not something to put in a tool row a
+            # person is scanning. One call, two readers, each taken the half it needs.
+            summary=result.message,
             is_error=result.is_error,
             replayed=self._replayed(result),
         )
@@ -197,6 +203,7 @@ class McpToolExecutor:
             raise ToolCallFailedError(result.message)
         return ToolOutcome(
             text=result.as_model_text(),
+            summary=result.message,
             is_error=False,
             replayed=self._replayed(result),
         )
@@ -246,7 +253,7 @@ def build_engine(settings: Settings) -> Engine:
 
 def build_invocation_handler(
     *,
-    provider: ModelProvider,
+    registry: ProviderRegistry,
     runtime: Runtime,
     sessions: sessionmaker[Session],
     settings: Settings,
@@ -279,7 +286,13 @@ def build_invocation_handler(
 
     async def handle(request: InvocationRequest) -> InvocationResponse:
         factory = InvocationHandlerFactory(
-            provider=provider,
+            # Resolved per request, not captured at construction. This is what makes a provider
+            # chosen on the page apply to the next turn: the handler factory reads the registry
+            # when it is built, and the registry is swapped in place by the selection route. Read
+            # once here rather than inside the loop, so every model turn of *this* invocation uses
+            # the same provider and a mid-turn switch cannot produce a transcript written by two
+            # different vendors.
+            provider=registry.provider,
             tools=runtime.require_tools(),
             executor=runtime.require_executor(),
             limits=limits,
@@ -502,7 +515,16 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or get_settings()
     engine = build_engine(resolved)
     sessions = create_session_factory(engine)
-    provider = build_provider(resolved)
+    # Resolved through a registry rather than built once and captured, so the provider can change
+    # while the process serves. Its initial value is still the setting, so a deployment with no
+    # stored preference behaves exactly as it did when this was a single `build_provider` call.
+    registry = ProviderRegistry(resolved)
+    control = ProviderControl(registry=registry, sessions=sessions)
+    # A selection stored by an earlier run, if any. Applied before the handlers are built so the
+    # very first request already answers with the chosen model — and a stored provider that can no
+    # longer be built is a warning inside `restore`, never a failure to start.
+    if control.restore():
+        logger.info("using the stored model provider: %s", registry.current.provider)
     runtime = Runtime()
     # One registry for the process, created here rather than inside a handler, because the
     # invocation handler writes to it and the cancel handler reads from it — and a per-request
@@ -516,7 +538,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app = create_app(
         resolved,
         invocation_handler=build_invocation_handler(
-            provider=provider,
+            registry=registry,
             runtime=runtime,
             sessions=sessions,
             settings=resolved,
@@ -526,6 +548,10 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         decision_handler=build_decision_handler(decide=decide, sessions=sessions),
         pending_approvals=build_pending_listing(sessions=sessions),
         cancel_handler=build_cancel_handler(runs=runs),
+        # The page's provider picker, reading and writing the same registry the loop uses, so a
+        # chip that names a model and a turn that uses one cannot disagree.
+        describe_providers=control.describe,
+        choose_provider=control.choose,
         lifespan=build_lifespan(resolved, runtime),
     )
     app.state.engine = engine

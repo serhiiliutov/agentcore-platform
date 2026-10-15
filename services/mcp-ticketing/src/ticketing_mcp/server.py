@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent
@@ -27,7 +27,13 @@ from mcp.types import CallToolResult, TextContent
 from .client import TicketingClient, TicketingConfig
 from .config import ServerSettings
 from .idempotency import IdempotencyLedger
-from .models import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from .models import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    Category,
+    Priority,
+    Status,
+)
 from .tools import (
     ToolOutcome,
     add_comment,
@@ -53,6 +59,23 @@ was already done, so report what happened rather than assuming a fresh write.
 
 Neither write tool asks for confirmation. Deciding whether a write should happen belongs to
 the caller, not to this server."""
+
+
+def _options(literal: Any) -> str:
+    """The values of a ``Literal`` as a readable list.
+
+    Read from the ``Literal`` the tool itself validates against rather than typed out beside it. A
+    hand-written list in a description and a hand-written set of allowed values are one fact in two
+    places, and the description is the one that goes stale — so the model is told a value the server
+    will then reject.
+    """
+    return ", ".join(f"`{value}`" for value in get_args(literal))
+
+
+#: The closed sets, rendered once each from the model that enforces them.
+_STATUS_VALUES = _options(Status)
+_PRIORITY_VALUES = _options(Priority)
+_CATEGORY_VALUES = _options(Category)
 
 
 def to_call_tool_result(outcome: ToolOutcome) -> CallToolResult:
@@ -112,6 +135,10 @@ def build_server(
             "you can tell whether more matches exist before saying a result is complete. "
             "Use `q` for a substring match across title and description; use `requester` "
             "for an exact (case-insensitive) name match. They compose. "
+            "The filters are exact matches against closed sets, and an unknown value is "
+            f"rejected rather than ignored, so do not guess: `status` is one of {_STATUS_VALUES}; "
+            f"`priority` is one of {_PRIORITY_VALUES}; "
+            f"`category` is one of {_CATEGORY_VALUES}. "
             f"`page_size` is capped at {MAX_PAGE_SIZE} by the API rather than truncated."
         ),
     )
@@ -155,6 +182,8 @@ def build_server(
             "to perform this write and REUSE it if you execute the same action again, so a "
             "retry cannot create a second ticket. Treat a result marked `replayed` as "
             "'already done', not as a new ticket. "
+            f"`priority` is one of {_PRIORITY_VALUES} (default `medium`); "
+            f"`category` is one of {_CATEGORY_VALUES} (default `other`); "
             f"`title` must be {3}-{120} characters; `requester` is required."
         ),
     )

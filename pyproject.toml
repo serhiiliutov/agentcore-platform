@@ -35,6 +35,17 @@ dependencies = []
 package = false
 
 [tool.uv.workspace]
+# `services/chat` is deliberately **not** a member, and this is a hard constraint rather than a
+# preference. Chainlit 2.12 requires ``mcp<2.0.0``; this workspace's MCP server requires
+# ``mcp>=2`` (``mcp.server.mcpserver`` exists only in 2.x). In one workspace the resolver has to
+# satisfy both, so it downgrades ``mcp`` for *every* member and the MCP server stops importing —
+# which takes the agent down with it. The chat app is therefore its own project, with its own lock
+# and its own environment:
+#
+#     uv run --project services/chat chainlit run services/chat/app.py
+#
+# Nothing is lost by the split: the chat app reaches the agent over HTTP and imports no part of
+# it, so the two environments never need to agree on anything.
 members = ["services/agent", "services/mcp-ticketing"]
 
 # ---------------------------------------------------------------------------

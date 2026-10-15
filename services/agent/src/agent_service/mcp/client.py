@@ -22,6 +22,7 @@ anywhere below that line.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -128,13 +129,33 @@ class ToolCallResult:
         return payload if isinstance(payload, Mapping) else {}
 
     def as_model_text(self) -> str:
-        """The text to place in a model's tool-result message.
+        """The text placed in a model's tool-result message: the sentence, then the data.
 
-        Prefixed on failure so a model reading a transcript cannot mistake an error for a
-        success — the two arrive through the same channel, and only the flag distinguishes
-        them.
+        **Both halves, and carrying both is the whole point of this method.** The MCP server sends
+        a one-sentence ``message`` written for a person *and* ``data``, the fields the tool actually
+        returned — its own comment says a result carrying only one of them "would be worse for half
+        its callers". This method used to forward the sentence alone, and what that produced was not
+        a terser answer but a fabricated one: a model told "10 of 25 matching ticket(s) on page 1."
+        and nothing else cannot name a single ticket, so it invents them, with plausible-looking
+        requesters, and states them confidently.
+
+        That is not a hypothetical. A live run answered "Can you calculate distribution of tickets
+        by status, by category?" by reading all twenty-five tickets one at a time — each call
+        returning another one-line sentence — and then reporting that no category information was
+        available, for tickets whose category the model had never been shown.
+
+        The sentence stays first because it is where a failure is stated in words, which a model
+        reads faster than it reads a field; the payload follows so it can reason over the data at
+        all. On an error the whole thing is prefixed, so a transcript cannot show a refusal as an
+        answer.
         """
-        return f"ERROR: {self.message}" if self.is_error else self.message
+        payload = self.data
+        text = (
+            f"{self.message}\n\n{json.dumps(payload, indent=2, default=str)}"
+            if payload
+            else self.message
+        )
+        return f"ERROR: {text}" if self.is_error else text
 
 
 class TicketingMcpClient:

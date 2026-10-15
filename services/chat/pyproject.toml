@@ -1,0 +1,49 @@
+# ============================================================================
+# agent-chat — a Chainlit front end for the helpdesk agent.
+#
+# A **standalone uv project**, deliberately not a member of the root workspace.
+#
+# That is a hard constraint, not a preference, and it was found the expensive way: Chainlit 2.12
+# requires ``mcp<2.0.0``, while the agent's MCP server requires ``mcp>=2`` (``mcp.server.mcpserver``
+# exists only in 2.x). In one workspace the resolver must satisfy both, so it downgrades ``mcp`` for
+# every member, and the MCP server — and therefore the agent — stops importing. Isolating the chat
+# app is the only way to have both.
+#
+# Nothing is lost by the split. The app reaches the agent over HTTP (``/invocations``,
+# ``/api/providers``) and imports no part of it, so the two environments never need to agree.
+# Chainlit pulls in ``mcp 1.x`` for its own optional MCP support; that copy is unused here and
+# cannot reach the agent's process.
+#
+# Run it (its own lock and venv are created on first use):
+#
+#     uv run --project services/chat chainlit run services/chat/app.py
+#
+# Or, if the environment already exists:
+#
+#     services/chat/.venv/Scripts/chainlit run services/chat/app.py
+# ============================================================================
+
+[project]
+name = "agent-chat"
+version = "0.1.0"
+description = "Chainlit chat UI for the AgentCore helpdesk agent: the conversation, each tool call, and the approval buttons."
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = [
+  # The chat surface, its message history and its action buttons.
+  #
+  # Lower-bounded at 2.12 because that is the version whose API this app is written against — in
+  # particular `cl.action_callback(name)`, which is how an approval button is wired. 2.11 and
+  # earlier have no such decorator, so the bound is a correctness bound rather than a freshness one.
+  # Upper-bounded at 3 so a major bump cannot arrive silently; it brings its own `mcp<2` requirement,
+  # which is the reason this project is separate (see the header).
+  "chainlit>=2.12,<3",
+  # The agent's own HTTP client. This app is the only place in the repository that needs it besides
+  # the agent itself, so it is declared here rather than inherited.
+  "httpx>=0.28",
+]
+
+# An application, not a library: nothing imports it, so there is no wheel to build and no `src/`
+# layout to satisfy.
+[tool.uv]
+package = false

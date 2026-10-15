@@ -24,7 +24,7 @@ RUN := $(UV) run python -m devtasks
 .PHONY: help bootstrap doctor json \
         lint fmt typecheck format \
         test test-unit test-integration \
-        up down ps logs up-ci down-ci ps-ci reset mock mcp \
+        up down ps logs up-ci down-ci ps-ci reset mock mcp chat \
         migrate downgrade revision \
         eval secrets screenshots env clean ci
 
@@ -126,6 +126,10 @@ mcp:
 	@$(RUN) mcp $(ARGS)
 
 # --- database ---------------------------------------------------------------
+## chat: run the Chainlit chat front end against a running agent, blocking
+chat:
+	@$(RUN) chat $(ARGS)
+
 ## migrate: apply all Alembic migrations
 migrate:
 	@$(RUN) migrate $(ARGS)

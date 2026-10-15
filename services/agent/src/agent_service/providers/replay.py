@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent_service.config import ProviderName, Settings
+from agent_service.config import REPLAY_DEFAULT_FILENAME, ProviderName, Settings
 
 from .base import (
     AssistantTurn,
@@ -38,7 +38,12 @@ from .base import (
 )
 
 #: Where a recording is expected when the setting names a directory rather than a file.
-DEFAULT_FILENAME = "provider-recording.json"
+#:
+#: An alias for the constant `agent_service.config` owns, not a second literal. `Settings` has to
+#: resolve a directory exactly this way to decide whether `replay` is offered at all, and two
+#: copies of the name would be two chances to disagree about which file a recording is — with the
+#: symptom landing on a user, as "offered by the picker but rejected when chosen".
+DEFAULT_FILENAME = REPLAY_DEFAULT_FILENAME
 
 
 class RecordingExhaustedError(RuntimeError):

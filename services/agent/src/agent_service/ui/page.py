@@ -64,7 +64,7 @@ INDEX_HEAD = """<!DOCTYPE html>
   header .who { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   label { color: var(--muted); font-size: 13px; }
   main { padding: 20px; max-width: 860px; margin: 0 auto; }
-  input, button {
+  input, select, button {
     font: inherit;
     color: var(--ink);
     background: var(--panel);
@@ -72,7 +72,10 @@ INDEX_HEAD = """<!DOCTYPE html>
     border-radius: 8px;
     padding: 8px 10px;
   }
-  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  select { max-width: 12rem; }
+  /* One row for the model control, so it reads as a unit and wraps as one on a narrow window. */
+  .modelrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-left: auto; }
   button { cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: #0d1017; border-color: var(--accent); font-weight: 600; }
@@ -104,11 +107,24 @@ INDEX_HEAD = """<!DOCTYPE html>
 <body>
 <header>
   <h1>AgentCore &middot; IT Helpdesk Agent</h1>
-  <!-- Which model is answering, filled from /api/info on load. Without it a reviewer reads the
-       deterministic provider's canned sentences and has no way to tell them from a real model's -
-       the wrong conclusion to leave someone with, since the provider is one environment variable
-       away from a live one (README section c). -->
-  <span id="model" class="chip" hidden>model: &hellip;</span>
+  <!-- The model control: which provider answers and which model it uses, filled from
+       /api/providers on load. Two jobs in one place, and both were missing before it existed.
+
+       The chip alone was here, and it only *reported* the provider. A reviewer could read "model:
+       scripted" and had no way to act on it - the provider was an environment variable and a
+       container restart away, which is not "swappable through config" from where they are sitting.
+
+       No key is entered here. The credential comes from the environment; this chooses *whose*
+       credential is used. That is the whole reason a provider picker is safe to ship. -->
+  <div class="modelrow">
+    <label for="provider">model</label>
+    <select id="provider" title="Which provider answers. Changing this applies immediately."></select>
+    <input id="modelid" list="modeloptions" size="18" placeholder="provider default"
+           autocomplete="off" title="Model id. Empty means the provider's own default.">
+    <datalist id="modeloptions"></datalist>
+    <button type="button" id="applymodel" title="Use this model">Use</button>
+    <span id="model" class="chip" hidden>model: &hellip;</span>
+  </div>
   <div class="who">
     <label for="user">user</label>
     <input id="user" value="alice" size="10" autocomplete="off">
@@ -124,9 +140,14 @@ INDEX_HEAD = """<!DOCTYPE html>
 <main>
   <div id="banner" class="banner" hidden></div>
 
-  <section id="pending"></section>
-
   <section id="transcript"></section>
+
+  <!-- Below the transcript, not above it. This was the other way round, and a proposal therefore
+       rendered at the *top* of the page: the card for a write the agent had just proposed appeared
+       above the very first message of the conversation, so a reader met "Approval needed" before
+       anything that explained it. The card belongs at the end - with the turn that produced it,
+       and where a decision about it is the next thing to do. -->
+  <section id="pending"></section>
 
   <form id="ask" autocomplete="off">
     <input id="message" placeholder="Describe the problem, e.g. the printer is jammed again" required>
@@ -135,10 +156,13 @@ INDEX_HEAD = """<!DOCTYPE html>
          when there is nothing to stop, and the 404 that follows reads like a broken button. -->
     <button class="bad" type="button" id="cancel" hidden>Cancel</button>
   </form>
-  <p class="hint">Reads run immediately. A write is proposed and waits for your approval above.
+  <p class="hint">Reads run immediately. A write is proposed and waits for your approval — nothing
+    is written to the ticketing system until you press <strong>Approve and run</strong>.
     <strong>New session</strong> empties this transcript and starts a fresh conversation; the
     previous one is not deleted — it stays in the database under its own session id, and no ticket
-    is ever removed by this page.</p>
+    is ever removed by this page. The <strong>model</strong> control switches provider without a
+    restart and the choice is stored; API keys always come from the environment, never from this
+    page.</p>
 </main>
 """
 #: The script, kept separate from the markup only so the two are readable in one file each.
@@ -162,6 +186,10 @@ INDEX_SCRIPT = r"""
   var cancelButton = document.getElementById("cancel");
   var newSessionButton = document.getElementById("newsession");
   var modelChip = document.getElementById("model");
+  var providerSelect = document.getElementById("provider");
+  var modelInput = document.getElementById("modelid");
+  var modelOptions = document.getElementById("modeloptions");
+  var applyModelButton = document.getElementById("applymodel");
 
   // A session id is minted here rather than left for the server to assign, because cancelling
   // needs to name the conversation *while* the turn is running — and until the response arrived
@@ -365,7 +393,12 @@ INDEX_SCRIPT = r"""
       if (result.session_id) sessionField.value = result.session_id;
       renderTurn("agent", result.output || "(the agent proposed a write - see below)", result);
       if (result.pending_approval) {
-        pending.appendChild(renderApproval(result.pending_approval));
+        // Scrolled to as well as appended. The card sits below the transcript now, so on a long
+        // conversation it can land just past the fold - and a proposal nobody notices is a
+        // proposal nobody approves.
+        var card = renderApproval(result.pending_approval);
+        pending.appendChild(card);
+        card.scrollIntoView({ block: "nearest" });
       }
       message.value = "";
     } catch (error) {
@@ -413,29 +446,106 @@ INDEX_SCRIPT = r"""
     message.focus();
   });
 
-  // Which model is answering, so the deterministic provider's sentences are not mistaken for the
-  // product's best effort. Silent on failure and the chip stays hidden: the page has to work
-  // whether or not this endpoint exists.
-  async function loadInfo() {
+  // Which model is answering, and how to change it. Two jobs that used to be one.
+  //
+  // The chip reported the provider and nothing more, so a reviewer could read "model: scripted" and
+  // had no way to act on it: the provider was an environment variable and a container restart away.
+  // The picker is the same fact with a control attached, and the backend stores the choice - so
+  // what it shows is what the *next* turn will use, not merely what this page last sent.
+  //
+  // No credential is read or sent here. The key comes from the environment; this chooses which
+  // configured provider is used, which is the reason a picker is safe to ship and a key field
+  // would not be.
+  function renderModel(status) {
+    var label = status.provider;
+    if (status.deterministic) {
+      label += " - deterministic, no key needed";
+    } else if (status.model_id) {
+      label += " - " + status.model_id;
+    }
+    modelChip.textContent = "model: " + label;
+    modelChip.title = status.detail || "";
+    modelChip.hidden = false;
+  }
+
+  function fillProviders(status) {
+    providerSelect.textContent = "";
+    (status.available || []).forEach(function (name) {
+      var option = el("option", null, name);
+      option.value = name;
+      providerSelect.appendChild(option);
+    });
+    providerSelect.value = status.provider;
+
+    // The model field is free text with suggestions, not a closed list: the catalogue is a
+    // convenience, and an id the endpoint does not report must still be typable.
+    modelOptions.textContent = "";
+    (status.models || []).forEach(function (id) {
+      var option = el("option", null, null);
+      option.value = id;
+      modelOptions.appendChild(option);
+    });
+    // Filled only when the field is not being typed in, so refilling after a provider change
+    // cannot fight a reviewer mid-edit.
+    if (document.activeElement !== modelInput) {
+      modelInput.value = status.model_id || "";
+      modelInput.placeholder = (status.models && status.models[0]) || "provider default";
+    }
+    renderModel(status);
+  }
+
+  async function loadProviders() {
     try {
-      var info = await json("api/info");
-      var label = info.provider;
-      if (info.deterministic) {
-        label += " - deterministic, no key needed";
-      } else if (info.model_id) {
-        label += " - " + info.model_id;
-      }
-      modelChip.textContent = "model: " + label;
-      modelChip.title = info.detail || "";
-      modelChip.hidden = false;
+      fillProviders(await json("api/providers"));
     } catch (error) {
-      modelChip.hidden = true;
+      // No picker in this build - but the chip must still say which model answers, so fall back to
+      // the older endpoint. Staying silent would leave a reviewer unable to tell canned replies
+      // from a model's, which is the one thing the chip exists to prevent.
+      try {
+        renderModel(await json("api/info"));
+      } catch (ignored) {
+        modelChip.hidden = true;
+      }
+    }
+  }
+
+  async function applyModel() {
+    clearError();
+    applyModelButton.disabled = true;
+    providerSelect.disabled = true;
+    try {
+      fillProviders(await json("api/providers/current", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: providerSelect.value,
+          model_id: modelInput.value.trim()
+        })
+      }));
+    } catch (error) {
+      // A refusal is shown, and the picker is refilled from the server so that what is displayed
+      // after a failed change is the provider that is actually in force - never the one that was
+      // asked for and rejected.
+      showError(error.message);
+      try {
+        fillProviders(await json("api/providers"));
+      } catch (ignored) {
+        // The listing is already loaded or unavailable; either way there is nothing better to show.
+      }
+    } finally {
+      applyModelButton.disabled = false;
+      providerSelect.disabled = false;
     }
   }
 
   userField.addEventListener("change", loadPending);
+  // Changing the provider applies at once - one click rather than two - while the model id waits
+  // for the button, because a text field that applied on every keystroke would select a model per
+  // character typed.
+  providerSelect.addEventListener("change", applyModel);
+  applyModelButton.addEventListener("click", applyModel);
   loadPending();
-  loadInfo();
+  loadProviders();
   message.focus();
 })();
 </script>

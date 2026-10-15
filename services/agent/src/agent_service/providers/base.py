@@ -191,14 +191,15 @@ def build_provider(settings: Settings) -> ModelProvider:
             f"{', '.join(settings.configured_providers())}"
         )
 
-    # Only the credential-free providers are wired so far. The SDK-backed three raise a
-    # message naming themselves rather than being imported from modules that do not exist:
-    # an unresolved import would fail before this function could explain anything, and a
-    # tree that does not lint or type-check is not a state worth committing to.
-    #
     # Each branch annotates its result explicitly, because mypy would otherwise see a
     # lazily imported symbol as Any and lose the check that a provider satisfies the
     # protocol it claims to.
+    #
+    # All six providers are wired. Four of them used to reach the `else` below and be told
+    # their implementation "is not written yet" — while the implementations sat in this
+    # package, complete, with their SDKs already declared and installed. Every file was right
+    # and the one line that joins them was missing, so `AGENT_MODEL_PROVIDER=openai` refused to
+    # start with a message that read like a missing feature rather than a missing branch.
     provider: ModelProvider
 
     if selected == "scripted":
@@ -209,10 +210,28 @@ def build_provider(settings: Settings) -> ModelProvider:
         from .replay import ReplayProvider
 
         provider = ReplayProvider.from_settings(settings)
+    elif selected == "anthropic":
+        from .anthropic_provider import AnthropicProvider
+
+        provider = AnthropicProvider(settings)
+    elif selected in ("openai", "openai_compatible"):
+        # One class for both, and it decides which of the two names it reports from whether a
+        # base URL was set — that is what makes a local endpoint the same code path as the
+        # hosted API rather than a second implementation of it.
+        from .openai_provider import OpenAIProvider
+
+        provider = OpenAIProvider(settings)
+    elif selected == "bedrock":
+        from .bedrock_provider import BedrockProvider
+
+        provider = BedrockProvider(settings)
     else:
+        # Unreachable while `ProviderName` is the only source of this value, and kept so that
+        # widening the Literal without widening this function fails here, at build time, with a
+        # sentence about dispatch rather than three turns into a conversation.
         raise ProviderNotConfiguredError(
-            f"provider {selected!r} is selected and configured, but its implementation is "
-            f"not written yet; the providers available today are 'scripted' and 'replay'"
+            f"provider {selected!r} is selected but has no branch in build_provider; "
+            f"providers available: {', '.join(settings.configured_providers())}"
         )
 
     return provider

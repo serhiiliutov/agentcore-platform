@@ -44,10 +44,30 @@ from .base import (
 #: with a parameter a tool actually declares.
 RAW_ARGUMENTS_KEY = "_raw_arguments"
 
-#: Used when the settings name no model. Chosen for broad availability: a local
-#: OpenAI-shaped server is unlikely to serve this exact id, which is why
-#: ``openai_compatible`` deployments are expected to set AGENT_MODEL_ID.
-DEFAULT_MODEL = "gpt-4o-mini"
+#: The single OpenAI model this service answers with unless ``AGENT_MODEL_ID`` names another.
+#:
+#: Predefined rather than left open deliberately: the requirement is one model per provider, so a
+#: deployment should not have to know which GPT ids exist to get a working agent. ``gpt-4o`` is
+#: chosen for tool-calling reliability — the one capability this agent is built on — and because
+#: it is served both by the hosted API and by the common proxies.
+#:
+#: A local OpenAI-shaped server (Ollama, vLLM, LM Studio) is unlikely to serve this exact id,
+#: which is why ``openai_compatible`` deployments are expected to set AGENT_MODEL_ID.
+DEFAULT_MODEL = "gpt-4o"
+
+#: Where requests go when no base URL is configured. Passed to the SDK explicitly rather than
+#: letting it fall back to its own ``OPENAI_BASE_URL``, and that is not a stylistic choice.
+#:
+#: ``base_url=None`` means "use the SDK's default", and the SDK's default is
+#: ``os.environ.get("OPENAI_BASE_URL")``. Compose sets that variable to an *empty string* for an
+#: operator who has not specified one (``${OPENAI_BASE_URL:-}``), and the SDK takes the empty
+#: string as the base URL — so the client tried to POST to ``""`` and httpx raised
+#: ``UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol``. The turn
+#: then died as an unhandled ``APIConnectionError`` and the caller saw "Internal Server Error".
+#:
+#: Naming the default here also makes this service the single source of truth about where requests
+#: go: a stray variable in the environment can no longer redirect them.
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
 class OpenAIProvider:
@@ -70,7 +90,8 @@ class OpenAIProvider:
 
         self._client = AsyncOpenAI(
             api_key=key.get_secret_value() if key is not None else "not-needed",
-            base_url=base_url or None,
+            # Explicit, never None — see `DEFAULT_BASE_URL` for what None cost.
+            base_url=base_url or DEFAULT_BASE_URL,
         )
         self._model = settings.agent_model_id or DEFAULT_MODEL
         #: Whether this instance is pointed at a local endpoint. Reported for the trace, and

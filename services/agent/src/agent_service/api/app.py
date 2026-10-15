@@ -41,7 +41,12 @@ from .models import (
     InvocationRequest,
     InvocationResponse,
 )
-from .ui_routes import PendingApprovalListing, create_ui_router
+from .ui_routes import (
+    ChooseProvider,
+    DescribeProviders,
+    PendingApprovalListing,
+    create_ui_router,
+)
 
 #: The header the AgentCore Runtime uses to identify a conversation.
 SESSION_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
@@ -95,6 +100,8 @@ def create_app(
     decision_handler: DecisionHandler | None = None,
     pending_approvals: PendingApprovalListing | None = None,
     cancel_handler: CancelHandler | None = None,
+    describe_providers: DescribeProviders | None = None,
+    choose_provider: ChooseProvider | None = None,
     lifespan: Lifespan[Any] | None = None,
 ) -> FastAPI:
     """Build the application.
@@ -113,7 +120,11 @@ def create_app(
     inflight = _InflightCounter()
     decisions = create_approval_router(decision_handler)
     cancels = create_cancel_router(cancel_handler)
-    ui = create_ui_router(pending_approvals)
+    ui = create_ui_router(
+        pending_approvals,
+        describe_providers=describe_providers,
+        choose_provider=choose_provider,
+    )
 
     app = FastAPI(
         title="agent-service",

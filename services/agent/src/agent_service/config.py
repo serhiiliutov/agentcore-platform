@@ -31,6 +31,15 @@ ProviderName = Literal["scripted", "replay", "anthropic", "openai", "openai_comp
 #: Transports for reaching the ticketing MCP server.
 McpTransport = Literal["stdio", "http"]
 
+#: Where a recording is expected when ``AGENT_MODEL_ID`` names a directory rather than a file.
+#:
+#: Defined here, in the module with no dependencies, even though `providers/replay.py` is where it
+#: is used — because `Settings.configured_providers` must answer "is a recording configured?" in
+#: order to decide whether `replay` is on offer at all, and that answer has to resolve a directory
+#: exactly the way the provider does. Two copies of this name would be two chances to answer it
+#: differently. `replay.py` imports it from here, so the dependency still points one way.
+REPLAY_DEFAULT_FILENAME = "provider-recording.json"
+
 
 class Settings(BaseSettings):
     """Environment-driven configuration for the agent service."""
@@ -175,7 +184,18 @@ class Settings(BaseSettings):
         sees it, and it returns names only: no key material, no key prefix, no hint about
         a key's contents.
         """
-        available: list[ProviderName] = ["scripted", "replay"]
+        available: list[ProviderName] = ["scripted"]
+
+        # `replay` is conditional, exactly as the three live providers below are, and the reason is
+        # the principle this method exists to serve: the picker must not offer a choice that cannot
+        # be built. `replay` reads as unconditional and is not — its "model id" is the path to a
+        # recording, so with none configured it raises "the replay provider needs a recording" the
+        # instant it is selected. That is not hypothetical: a reader saw `replay` in the dropdown,
+        # chose it, and got "recording not found: gpt-4o-mini", because the settings panel sent the
+        # *previous* provider's model id along with the new provider's name. A provider whose only
+        # requirement is absent is absent.
+        if self.replay_recording_is_configured():
+            available.append("replay")
 
         if self.anthropic_api_key is not None:
             available.append("anthropic")
@@ -188,6 +208,24 @@ class Settings(BaseSettings):
             available.append("bedrock")
 
         return tuple(available)
+
+    def replay_recording_is_configured(self) -> bool:
+        """Whether ``AGENT_MODEL_ID`` points at a recording that is actually there.
+
+        Existence rather than a non-empty string, because that is the whole difference between
+        "the picker offers `replay`" and "choosing `replay` works": `ReplayProvider.from_settings`
+        resolves a directory to `REPLAY_DEFAULT_FILENAME` and refuses a path that is not present,
+        so a typo in the setting would otherwise be offered and then rejected on use. The
+        resolution below mirrors the provider's own rather than approximating it — a directory is
+        as good as the file inside it, because that is the file the provider will load.
+        """
+        raw = self.agent_model_id.strip()
+        if not raw:
+            return False
+        path = Path(raw)
+        if path.is_dir():
+            path = path / REPLAY_DEFAULT_FILENAME
+        return path.exists()
 
     def selected_provider_is_usable(self) -> bool:
         """Whether the configured provider has what it needs to run.

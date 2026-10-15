@@ -31,6 +31,7 @@ model that keeps calling tools — cannot make a conversation unbounded.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
@@ -78,6 +79,16 @@ class ToolOutcome:
 
     text: str
     is_error: bool = False
+    #: A one-line description of the call, for the *response* rather than for the model.
+    #:
+    #: Separate from ``text`` because the two readers want opposite things from one call. The model
+    #: needs the returned **data** — a page of tickets, a ticket's comments, each ticket's category —
+    #: or it cannot answer without inventing; a person watching the transcript needs one line they
+    #: can scan. Sending ``text`` to the response would put a page of JSON in every tool row, and
+    #: sending the response's sentence to the model is precisely the defect that let a live run
+    #: fabricate twenty-five tickets. Empty means "``text`` is already short enough", which is the
+    #: case for a transport failure, where the two are the same sentence.
+    summary: str = ""
     #: The backend answered "already done" rather than doing it again. Only writes can set this,
     #: and it is carried as data rather than recovered from ``text`` for the same reason
     #: ``is_error`` is: a caller that reads a sentence for a marker is coupled to wording it does
@@ -198,6 +209,42 @@ TRANSPORT_FAILURE_TEMPLATE = (
     "ERROR: the tool could not be reached ({reason}). "
     "Do not retry the same call unchanged; report the problem instead."
 )
+
+#: What the user is told when the *model* could not answer. Deliberately free of the provider's own
+#: message, because that message can quote the credential: OpenAI's response for a rejected key
+#: includes the first characters of the key it rejected ("Incorrect API key provided: sk-proj-Ab…").
+#: Putting that in an HTTP response, or in the conversation stored in the database, would leak key
+#: material through a path the whole design exists to keep it out of. The type name and status code
+#: are enough for a person to tell a bad key from a network that is down, and the provider's own
+#: wording is in the agent's log for whoever is debugging.
+PROVIDER_FAILURE_TEMPLATE = (
+    "The model could not answer this turn: {reason}. {hint} "
+    "The agent's log has the provider's own message."
+)
+
+#: What to check, per status code. The status is the one thing we can act on without echoing the
+#: provider's sentence, and the wrong advice is worse than none: the first version of this message
+#: told every failure to "check the credential and the model id", which is unhelpful for a 429 —
+#: a rate limit means the credential was accepted and the *account* is the constraint.
+PROVIDER_HINTS: dict[int, str] = {
+    401: "The provider rejected the credential. Check the key in the environment.",
+    403: "The provider refused this key for that model or region.",
+    404: "The provider does not serve that model id. Pick another in the model control.",
+    429: (
+        "The provider is rate-limiting this key, which usually means the account has no remaining "
+        "quota rather than a momentary burst — the request was authenticated, and the client has "
+        "already retried. Check billing and usage for the account, or choose another provider."
+    ),
+}
+
+#: Used for a status with no hint above, and for a failure with no status at all — a timeout or a
+#: dropped connection, where the credential and the model id are still the two things worth
+#: checking.
+PROVIDER_HINT_DEFAULT = (
+    "Check the credential and the model id, or choose a different provider in the model control."
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AgentLoop:
@@ -323,6 +370,42 @@ class AgentLoop:
                 steps=steps,
                 usage=last_usage,
             )
+        except Exception as exc:
+            # The model itself failed: an unreachable endpoint, a rejected key, a model id the
+            # provider does not serve. Reported as a finished turn with a reason, never raised.
+            #
+            # Raised, it was a 500: the caller saw "Internal Server Error" with no explanation
+            # while the log held an unhandled `APIConnectionError`. That is the worst of both -
+            # nothing the user can act on, and nothing the response admits. The tool path already
+            # works this way (see `_call`); this is the same rule applied to the other thing that
+            # talks to the outside world.
+            #
+            # A broad catch is deliberate. Which exceptions a provider SDK raises is not a closed
+            # set this loop can enumerate, and the alternative to catching them is that a network
+            # blip ends a turn as an unhandled error. `str(exc)` is *not* in the response - see
+            # `PROVIDER_FAILURE_TEMPLATE` for why - but it is in the log, at debug, where a
+            # developer can read it without it being published.
+            status_code = getattr(exc, "status_code", None)
+            reason = type(exc).__name__
+            if isinstance(status_code, int):
+                reason = f"{reason} (HTTP {status_code})"
+            logger.warning(
+                "model provider failed during a turn",
+                extra={"provider": self._provider.name, "reason": reason},
+            )
+            logger.debug("provider failure detail", exc_info=exc)
+            hint = (
+                PROVIDER_HINTS[status_code]
+                if isinstance(status_code, int) and status_code in PROVIDER_HINTS
+                else PROVIDER_HINT_DEFAULT
+            )
+            return TurnResult(
+                text=PROVIDER_FAILURE_TEMPLATE.format(reason=reason, hint=hint),
+                stop_reason="error",
+                tool_calls=tuple(records),
+                steps=steps,
+                usage=last_usage,
+            )
 
         # The ceiling, not a failure: a model that kept calling tools was cut off, which is a
         # fact about this turn and worth reporting as such.
@@ -430,11 +513,11 @@ class AgentLoop:
                 ToolCallRecord(
                     call=call,
                     outcome="failed" if outcome.is_error else "executed",
-                    # The tool's own sentence, kept rather than discarded. This used to be
-                    # thrown away, which is what made a failed call indistinguishable from a
-                    # successful one in the response — the only trace of the failure was the
-                    # text fed to the model.
-                    detail=outcome.text,
+                    # The short description when the executor gave one, and the model-facing text
+                    # only as a fallback. This used to be thrown away entirely, which made a failed
+                    # call indistinguishable from a successful one in the response — the only trace
+                    # of the failure was the text fed to the model.
+                    detail=outcome.summary or outcome.text,
                     duration_ms=duration_ms,
                 )
             )

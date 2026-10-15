@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_service.config import ProviderName, Settings
+from agent_service.config import REPLAY_DEFAULT_FILENAME, Settings
 from agent_service.providers import (
     AssistantTurn,
     Message,
@@ -84,6 +84,31 @@ async def test_a_search_request_becomes_a_search_call() -> None:
     assert turn.tool_calls
     assert turn.tool_calls[0].name == "search_tickets"
     assert turn.tool_calls[0].arguments["q"] == "printer"
+
+
+async def test_a_three_letter_subject_is_still_a_query() -> None:
+    """The subject is what is left once the filler words are removed — not whatever is long.
+
+    This searched for an empty string, because the helper kept only words longer than three
+    characters and "vpn" is exactly three. An empty query is not a search the mock answers
+    usefully, so a one-word subject came back as a tool error a reviewer read as a backend fault:
+    `{"q": ""}` and "the API returned a body that does not match SearchResult".
+    """
+    turn = await ScriptedProvider().chat(_user("find tickets about the vpn"))
+
+    assert turn.tool_calls[0].arguments["q"] == "vpn"
+
+
+async def test_the_subject_survives_the_short_words_around_it() -> None:
+    """The filler set does the work the length filter was standing in for."""
+    for prompt, expected in (
+        ("find tickets about the printer", "printer"),
+        ("search tickets for the jammed printer", "jammed"),
+        ("show me any tickets about the vpn", "vpn"),
+    ):
+        turn = await ScriptedProvider().chat(_user(prompt))
+
+        assert turn.tool_calls[0].arguments["q"] == expected, prompt
 
 
 async def test_a_named_ticket_becomes_a_lookup() -> None:
@@ -466,9 +491,25 @@ def test_a_secret_is_not_readable_without_asking_explicitly() -> None:
     assert not isinstance(settings.anthropic_api_key, str)
 
 
-@pytest.mark.parametrize("provider", ["scripted", "replay"])
-def test_the_credential_free_providers_are_always_reported_as_configured(
-    provider: ProviderName,
-) -> None:
-    """They need nothing, so a deployment can always fall back to one."""
-    assert provider in _settings().configured_providers()
+def test_scripted_is_always_reported_as_configured() -> None:
+    """It needs nothing, so a deployment can always fall back to it."""
+    assert "scripted" in _settings().configured_providers()
+
+
+def test_replay_is_reported_as_configured_only_with_a_recording(tmp_path: Path) -> None:
+    """The rule the other providers are held to, applied to the one whose "key" is a file.
+
+    These were one parametrized test over `scripted` and `replay` together, justified by "they need
+    nothing" — and for `replay` that was simply untrue. It needs a recording, which `AGENT_MODEL_ID`
+    names. Reporting it as available with none configured is what put it in the model picker as a
+    choice that could only fail, and the failure landed on a reader as "recording not found:
+    gpt-4o-mini".
+
+    Both directions, because the wrong fix is to drop `replay` from the list altogether — that would
+    break the recorded-run path this provider exists for.
+    """
+    assert "replay" not in _settings().configured_providers()
+
+    (tmp_path / REPLAY_DEFAULT_FILENAME).write_text("[]", encoding="utf-8")
+
+    assert "replay" in _settings(agent_model_id=str(tmp_path)).configured_providers()

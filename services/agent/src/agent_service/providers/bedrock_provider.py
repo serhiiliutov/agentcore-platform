@@ -34,9 +34,37 @@ from .base import (
     Usage,
 )
 
-#: Used when the settings name no model. A current, broadly available Claude model on
-#: Bedrock; ``BEDROCK_MODEL_ID`` overrides it because ids are region- and account-specific.
-DEFAULT_MODEL = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+#: The single Bedrock model this service answers with unless ``BEDROCK_MODEL_ID`` names another.
+#:
+#: Predefined rather than left open for the same reason as the OpenAI default: one model per
+#: provider, so a deployment does not have to know which Claude ids exist on Bedrock to get a
+#: working agent. Claude 3.7 Sonnet is chosen for tool-calling reliability — the one capability
+#: this agent is built on — over the older 3.5 Sonnet v2.
+#:
+#: ``BEDROCK_MODEL_ID`` overrides it, and it exists because Bedrock ids are region- and
+#: account-specific: a region that serves Claude only through an inference profile needs the
+#: prefixed form (``eu.anthropic.claude-3-7-sonnet-20250219-v1:0``) rather than the bare id below.
+DEFAULT_MODEL = "anthropic.claude-3-7-sonnet-20250219-v1:0"
+
+#: Bedrock's error codes mapped onto the HTTP status the loop's hint table is keyed by.
+#:
+#: boto3 raises ``ClientError`` and never sets ``.status_code``, so without this translation every
+#: Bedrock failure reaches the loop with no status and gets the generic hint — including a
+#: throttling or quota error, which is precisely the case whose advice has to be specific ("the
+#: account has no remaining quota" is a different instruction from "check the credential").
+#:
+#: Only the codes this service can act on are listed; anything else is left untouched and keeps the
+#: generic hint, which is the honest answer for a failure we have no specific advice for.
+_BEDROCK_STATUS_BY_CODE: dict[str, int] = {
+    "ThrottlingException": 429,
+    "ThrottlingError": 429,
+    "TooManyRequestsException": 429,
+    "ServiceQuotaExceededException": 429,
+    "AccessDeniedException": 403,
+    "UnauthorizedException": 401,
+    "ResourceNotFoundException": 404,
+    "ValidationException": 400,
+}
 
 
 class BedrockProvider:
@@ -93,7 +121,16 @@ class BedrockProvider:
                 ]
             }
 
-        response = await asyncio.to_thread(self._client.converse, **request)
+        try:
+            response = await asyncio.to_thread(self._client.converse, **request)
+        except Exception as exc:
+            # boto3 signals a refusal by *raising*, and carries the reason in
+            # ``response["Error"]["Code"]`` rather than in an HTTP status — so the loop's hint
+            # table, which is keyed by ``status_code``, would never see a throttling or quota
+            # error and would fall through to the generic "check the credential" advice.
+            # Translating here is right because this is the only place that knows what a Bedrock
+            # error looks like; the loop stays vendor-free.
+            raise _as_http_shaped(exc) from exc
         return _from_converse_response(response)
 
 
@@ -218,6 +255,41 @@ def _mapping_get(source: Any, key: str) -> Any:
 
 def _int_or_zero(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _error_code(exc: BaseException) -> str:
+    """The Bedrock error code on ``exc``, or an empty string when it carries none.
+
+    Read defensively because the shape is botocore's, not ours: a mocked or proxied client may
+    raise something that has no ``response`` at all, and an error path must not itself fail.
+    """
+    response = getattr(exc, "response", None)
+    if isinstance(response, Mapping):
+        error = response.get("Error")
+        if isinstance(error, Mapping):
+            code = error.get("Code")
+            if isinstance(code, str):
+                return code
+    return ""
+
+
+def _as_http_shaped(exc: BaseException) -> BaseException:
+    """Give a recognised Bedrock failure a ``status_code`` the loop's hint table can act on.
+
+    The attribute is set on the original exception rather than a wrapper being raised in its
+    place, so the loop's log still names the *real* error type (``ClientError``) instead of a
+    type this module invented, and nothing downstream has to know the translation happened. An
+    unrecognised code, or an object that refuses the attribute, is returned unchanged: the
+    failure is still reported, just with the generic hint.
+    """
+    status = _BEDROCK_STATUS_BY_CODE.get(_error_code(exc))
+    if status is None:
+        return exc
+    try:
+        exc.status_code = status  # type: ignore[attr-defined]
+    except AttributeError:  # pragma: no cover - an exception that refuses attributes
+        return exc
+    return exc
 
 
 def _reason_from(raw: Any) -> StopReason:

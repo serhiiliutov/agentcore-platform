@@ -579,3 +579,81 @@ async def test_a_loop_with_no_recorder_still_times_its_calls() -> None:
     result = await _loop(FakeProvider([_read_call()])).run("find it")
 
     assert result.tool_calls[0].duration_ms is not None
+# --- the model is the other thing that talks to the outside world -------------
+
+
+async def test_a_provider_that_raises_is_reported_rather_than_raised() -> None:
+    """A model-side failure must leave the caller something to read.
+
+    This was a 500. An unreachable endpoint or a rejected key raised out of ``run``, starlette turned
+    it into "Internal Server Error", and the response said nothing about the cause while the log held
+    a traceback. The tool path already reported rather than raised (see ``_call``); the model call is
+    the other place this loop reaches the outside world, so it gets the same treatment — and the
+    reason carries the status code when the SDK supplies one, because "wrong key" and "network down"
+    need different fixes.
+    """
+
+    class ProviderDownError(RuntimeError):
+        status_code = 502
+
+    def fail() -> None:
+        raise ProviderDownError("connection reset by peer")
+
+    provider = FakeProvider([_read_call()])
+    provider.on_chat = fail
+
+    result = await _loop(provider).run("find the printer")
+
+    assert result.stop_reason == "error"
+    assert "ProviderDownError" in result.text
+    assert "HTTP 502" in result.text
+    assert provider.calls == 1
+
+
+async def test_a_rate_limit_is_explained_as_a_quota_problem() -> None:
+    """The status decides the advice, and 429 is the one that misleads if it does not.
+
+    This is the message a real run produced: the account was rate-limited, and the first version of
+    the text told the reader to "check the credential and the model id" — which is wrong, because a
+    429 is an *authenticated* answer. A wrong hint is worse than no hint: it sends somebody to
+    rotate a key that works.
+    """
+
+    class RateLimitedError(RuntimeError):
+        status_code = 429
+
+    def fail() -> None:
+        raise RateLimitedError("rate limit reached")
+
+    provider = FakeProvider([_read_call()])
+    provider.on_chat = fail
+
+    result = await _loop(provider).run("find the printer")
+
+    assert result.stop_reason == "error"
+    assert "HTTP 429" in result.text
+    assert "quota" in result.text.lower()
+    assert "rejected the credential" not in result.text
+
+
+async def test_a_provider_failure_does_not_publish_the_providers_own_message() -> None:
+    """The reason is the exception type, never the provider's sentence.
+
+    Not fastidiousness: OpenAI's answer for a rejected key quotes the key it rejected — "Incorrect
+    API key provided: sk-proj-Ab…" — and that sentence would then be in the HTTP response and in the
+    conversation stored in the database. `SecretStr` keeps our own key out of logs; this keeps the
+    provider from putting part of it back in.
+    """
+    secret = "sk-proj-LEAKME0000"
+
+    def fail() -> None:
+        raise RuntimeError(f"Incorrect API key provided: {secret}")
+
+    provider = FakeProvider([_read_call()])
+    provider.on_chat = fail
+
+    result = await _loop(provider).run("find the printer")
+
+    assert result.stop_reason == "error"
+    assert "RuntimeError" in result.text
+    assert secret not in result.text

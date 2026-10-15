@@ -28,9 +28,28 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 TicketId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z]{3}-\d{3,}$")]
 
 #: Closed sets the mock validates. An unknown value is a 422, not an empty result.
+#:
+#: This is a statement about what we **send**, which is why the read models below do not use
+#: `Category`. The mock validates request parameters and bodies against these sets; it does not
+#: promise that everything it reports back is inside them, and it is not: the seeded fixture
+#: contains a ticket whose category is ``infrastructure``.
 Status = Literal["open", "in_progress", "resolved", "closed"]
 Priority = Literal["low", "medium", "high", "urgent"]
 Category = Literal["hardware", "software", "network", "access", "other"]
+
+#: The category as the API **reports** it — any string, deliberately.
+#:
+#: This was `Category` on the read models, and the difference is not hypothetical: one seeded ticket
+#: (TCK-1020) has ``infrastructure``, so *every search whose page contained that ticket* failed to
+#: parse. The failure did not look like a bad filter — the client reported "the API returned a body
+#: that does not match SearchResult", the whole page was discarded for one row, and the agent saw a
+#: tool error where it should have seen results. It surfaced through a query that had been reduced to
+#: an empty string, which returns the unfiltered list; the query was a separate bug, and this one
+#: would have hit any search broad enough to match TCK-1020.
+#:
+#: A value we only pass through cannot be validated against a set we invented. `extra="ignore"`
+#: already applies that reasoning to fields the backend adds; this applies it to values it widens.
+ReadCategory = str
 
 #: Field length limits the mock enforces, so the tool schema can reject first and give
 #: a better message than a 422 from three layers down.
@@ -74,7 +93,8 @@ class TicketSummary(_ApiModel):
     description: str
     status: Status
     priority: Priority
-    category: Category
+    # Reported, not requested: see `ReadCategory` for why this is wider than `Category`.
+    category: ReadCategory
     requester: str
     assignee: str | None = None
     created_at: str

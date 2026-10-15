@@ -19,22 +19,31 @@ lifetime rather than by table:
 
 `TraceRepository` arrived with Stage 10, which is the same rule applied again: it exists because
 the tracer needed somewhere to put a summary, not because a plan listed it in advance.
+
+`ProviderSettingsRepository` is the one that arrived *late* on purpose. The table was declared
+early and left unwired for several stages, because a table is cheap and a caller is not: writing
+this repository before something needed to change the provider would have shaped it by guesswork.
+It was written when the page gained a provider picker, which is the caller that gave it
+requirements — one stored choice, readable at startup, replaceable rather than accumulating.
 """
 
 from __future__ import annotations
 
 from .approvals import ApprovalRepository, ApprovalTransitionError
 from .facts import FactRepository
+from .provider_settings import GLOBAL_SCOPE, ProviderSettingsRepository
 from .sessions import DEFAULT_HISTORY_LIMIT, SessionRepository
 from .traces import DEFAULT_LIST_LIMIT, STATUSES, TraceRepository
 
 __all__ = [
     "DEFAULT_HISTORY_LIMIT",
     "DEFAULT_LIST_LIMIT",
+    "GLOBAL_SCOPE",
     "STATUSES",
     "ApprovalRepository",
     "ApprovalTransitionError",
     "FactRepository",
+    "ProviderSettingsRepository",
     "SessionRepository",
     "TraceRepository",
 ]
