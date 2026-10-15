@@ -1,6 +1,6 @@
 # Eval results
 
-**All 22 case(s) passed** in 44.3s on `scripted` — no model called, so this is a claim about the orchestration.
+**All 22 case(s) passed** in 43.8s on `scripted` — no model called, so this is a claim about the orchestration.
 
 | Case | Family | Result | Checks |
 | --- | --- | --- | --- |

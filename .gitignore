@@ -98,22 +98,30 @@ eval/results/*.tmp
 # internal working material and are deliberately NOT published: they are how the work
 # was done, not part of the deliverable. They stay on disk and stay readable locally.
 #
-# Three directories under docs/ ARE published, because each is evidence rather than
-# planning:
+# Three directories under docs/ ARE published, because each is evidence, or a record
+# the published code refers to:
 #
+#   adr/          the architecture decision records. Published because the code cites
+#                 them by number in about twenty places — `ADR-0001` at the MCP server
+#                 and its entry point, `ADR-0002` at the provider interface and its
+#                 tests, `ADR-0003` in the MCP pyproject, `ADR-0004` at the database
+#                 wiring — and published code must not point at a document a clone does
+#                 not contain. README.md section g is the summary; these are the detail.
 #   media/        the screenshots the assignment asks for, and the eval console run
 #   starter-kit/  the kit's own documentation and the checksum manifest that proves
 #                 the mock fixture has not been edited (a unit test reads it on every
 #                 run, so hiding it would break a fresh clone)
-#   adr/          the five decision records the README cites by name
 #
-# The negations keep working only because `docs/*` excludes the *children* of docs/
+# Everything else under docs/ — the plan, the architecture notes, the runbooks and the
+# brief itself — stays local. Nothing in the published tree links to those by path.
+#
+# The negation keeps working only because `docs/*` excludes the *children* of docs/
 # rather than docs/ itself — git cannot re-include a file whose parent directory has
 # been excluded outright.
 docs/*
+!docs/adr/
 !docs/media/
 !docs/starter-kit/
-!docs/adr/
 
 notes/
 docs/internal/
@@ -122,6 +130,10 @@ docs/scratch/
 *.local.json
 *.local.yaml
 .local/
+
+# Agent working notes kept in the repository root while a task is in progress. Never
+# part of the submission: they are a summary of what was read, not of what was built.
+project_info__*.md
 
 # --- Media: commit screenshots and small GIFs, not raw recordings -----------
 *.mp4

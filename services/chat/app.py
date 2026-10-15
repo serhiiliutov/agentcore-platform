@@ -57,6 +57,28 @@ CHAT_USERS = os.environ.get("CHAT_USERS", "")
 #: an escaping timeout here would look like the agent failing when it was still working.
 REQUEST_TIMEOUT_S = float(os.environ.get("CHAT_TIMEOUT_S", "180"))
 
+#: The provider this front end moves the agent to when the agent is still answering from its
+#: deterministic default. Empty disables the switch entirely.
+#:
+#: **Why the front end has an opinion at all.** The agent's own default is `scripted` — fixed rules
+#: in this repository — and that is the right default *for a test harness*: the eval suite is
+#: deterministic and free on every commit because of it. It is the wrong default for somebody who
+#: has just opened a chat, because the reply they read was chosen by a rule rather than by a model.
+#: The two defaults differ on purpose, and this constant is where the second one lives.
+#:
+#: **What it will not do.** It speaks only when the agent reports ``deterministic: true`` — exactly
+#: when no model is answering — and only when the named provider is in the agent's own ``available``
+#: list, meaning this process can actually build it. A deployment with no key therefore stays on
+#: `scripted`, with nothing to configure and no error to explain. It names a provider and never a
+#: credential: keys live in the agent's environment, which this process cannot read.
+#:
+#: **The cost, stated rather than hidden.** The agent stores the choice, so this happens once per
+#: deployment and the stored value wins from then on — with one exception: picking `scripted` in the
+#: settings gear looks identical to never having picked anything, so the next visit switches away
+#: from it again. To hold the deterministic provider across visits, empty this variable and pick it
+#: by hand, or drop the credential so `openai` is not offered at all.
+CHAT_DEFAULT_PROVIDER = os.environ.get("CHAT_DEFAULT_PROVIDER", "openai")
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,6 +241,41 @@ async def _put(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     response.raise_for_status()
     body: dict[str, Any] = response.json()
     return body
+
+
+async def _prefer_default_provider(status: dict[str, Any]) -> dict[str, Any]:
+    """Move the agent off its deterministic default, once, when this deployment can do better.
+
+    Returns the status to act on: the re-read one after a successful switch, or the original one
+    untouched when there was nothing to do or the switch was refused.
+
+    **A refusal is never shown.** This runs before the first message, the agent is still answering
+    with whatever it had, and a front end that opened with "could not switch provider" over a
+    preference would report a non-event as a fault. The reason goes to the log instead, which is
+    where somebody investigating a model selection would look for it.
+    """
+    if not CHAT_DEFAULT_PROVIDER:
+        return status
+    if not status.get("deterministic"):
+        return status
+
+    available = [str(name) for name in (status.get("available") or [])]
+    if CHAT_DEFAULT_PROVIDER not in available:
+        logger.info(
+            "%s cannot be built in this deployment, so the chat keeps answering with %s",
+            CHAT_DEFAULT_PROVIDER,
+            status.get("provider"),
+        )
+        return status
+
+    try:
+        switched = await _put(
+            "/api/providers/current", {"provider": CHAT_DEFAULT_PROVIDER, "model_id": ""}
+        )
+    except Exception as exc:
+        logger.warning("could not switch the agent to %s: %s", CHAT_DEFAULT_PROVIDER, exc)
+        return status
+    return switched
 
 
 def _error_detail(exc: Exception) -> str:
@@ -394,6 +451,11 @@ async def start() -> None:
             )
         ).send()
         return
+
+    # Before anything is shown, because everything below reports what the agent will answer with.
+    # The agent's own default is the deterministic provider — right for the evals, and not what
+    # somebody opening a chat came for. See `CHAT_DEFAULT_PROVIDER`.
+    status = await _prefer_default_provider(status)
 
     # Remembered so `update_settings` can tell a model change from a provider change: the panel
     # submits the whole form, so a model id typed for one provider arrives attached to the next.

@@ -17,8 +17,8 @@
 # volumes across files: without the tag, both mounts would target /data and which
 # one won would be a Docker implementation detail rather than a decision made
 # here. The tag needs Compose 2.24+ (Docker Desktop 4.24+) — `docker compose
-# version` prints yours. If the tag is unsupported, use §5.2 option C in
-# HOW-TO-TEST.md, which reads the same database through the running container.
+# version` prints yours. If the tag is unsupported, read the same database
+# through the running container instead of through a bind mount.
 #
 # The host directory sits under `data/`, which is already gitignored, so a
 # database that grows during a demo cannot reach a commit.

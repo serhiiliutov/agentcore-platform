@@ -85,5 +85,9 @@ def test_json_report_emits_parseable_json(capsys: pytest.CaptureFixture[str]) ->
     assert set(report) == {"repo_root", "services", "docs", "env_file"}
     assert "agent" in report["services"]
     assert "mcp-ticketing" in report["services"]
+    # `adr` is published because the code cites it by number in about twenty places, and published
+    # code must not point at a document a clone does not contain. The set below is the whole
+    # published surface under docs/, so a directory being dropped from it is a change to what a
+    # reviewer receives rather than an implementation detail — which is exactly what this asserts.
     assert {"adr", "media", "starter-kit"} <= set(report["docs"])
     assert not {"plan", "architecture", "runbooks"} & set(report["docs"])

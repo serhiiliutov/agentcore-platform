@@ -162,5 +162,5 @@ def require_docker() -> None:
     if shutil.which("docker") is None:
         raise TaskError(
             "docker was not found on PATH. Install Docker Desktop, or run the "
-            "services directly (see HOW-TO-TEST.md)."
+            "services directly (see README.md, section a)."
         )

@@ -457,6 +457,7 @@ CHAT_ENV_KEYS: tuple[str, ...] = (
     "CHAT_USERS",
     "CHAINLIT_AUTH_SECRET",
     "CHAT_TIMEOUT_S",
+    "CHAT_DEFAULT_PROVIDER",
 )
 
 #: The name compose gives the agent service — resolvable inside the compose network and nowhere
@@ -541,8 +542,8 @@ def _chat_environment() -> dict[str, str]:
     be left alone while somebody points the chat at a different agent for a minute.
 
     Reading `.env` at all is the reason this function exists. This repository's convention is that
-    configuration lives in `.env` — ``cp .env.example .env`` is the first line of both README and
-    HOW-TO-TEST — and compose honours that for the services. The chat, though, runs on the *host*,
+    configuration lives in `.env` — ``cp .env.example .env`` is the first line of the README — and
+    compose honours that for the services. The chat, though, runs on the *host*,
     started by this task rather than by Docker, so before this step a `CHAT_USERS` or a
     `CHAINLIT_AUTH_SECRET` written into `.env` did nothing whatsoever: nothing read the file, and
     the chat silently started anonymously with no login screen and no complaint. Which is exactly
@@ -606,6 +607,8 @@ WRITE_PROMPT = "please raise a ticket: the printer on the third floor is jammed 
 #: succeeds. The frame after the click waits for the decision's outcome instead — see
 #: `_capture_happy_path`.
 APPROVE_BUTTON = "Approve and run"
+#: The provider the capture task pins before it opens a browser. See `_pin_deterministic_provider`.
+DETERMINISTIC_PROVIDER = "scripted"
 
 
 def screenshots(extra: Sequence[str] = ()) -> int:
@@ -656,10 +659,14 @@ def screenshots(extra: Sequence[str] = ()) -> int:
     The browser is imported here rather than at module scope so that `devtasks help`, or any other
     task, does not depend on a websocket library being importable — the driver is one command's
     business, not the runner's.
+
+    The agent is put back on the deterministic provider first — see `_pin_deterministic_provider`
+    for why a reproducible capture cannot run on whatever the chat prefers.
     """
     from devtasks import chrome as browser_driver
 
     _require_running_stack()
+    _pin_deterministic_provider()
 
     with browser_driver.Chrome.launch() as page:
         _sign_in(page)
@@ -831,6 +838,46 @@ def _composer_holds(page: Chrome, text: str) -> bool:
     return bool(page.evaluate(f"(document.querySelector('#chat-input') || {{}}).value === {json.dumps(text)}"))
 
 
+def _pin_deterministic_provider() -> None:
+    """Put the agent back on its rule-driven provider, so a capture is a property of this build.
+
+    **Why a capture cannot use whatever the chat prefers.** The chat's own default is a live model —
+    see `services/chat/app.py::CHAT_DEFAULT_PROVIDER` — and a live model is exactly what a
+    reproducible screenshot cannot be built on: it picks its own tool, invents its own arguments and
+    words its own reply, so a frame named "a proposed write" could photograph a search, an apology,
+    or a ticket titled something different on every run. These frames are evidence that *this
+    repository* does these things, so they are taken against the provider whose behaviour is written
+    in the repository rather than sampled from a model.
+
+    One call to the agent's own endpoint — the same one the chat's settings gear uses — so there is
+    no second path into the selection to keep in step. The choice is stored by the agent, and this
+    task deliberately does not put it back: the next chat start prefers a live model again, so the
+    pin undoes itself, and restoring it here would fight the chat over the same row.
+
+    A failure is fatal rather than a warning. Carrying on would take frames that do not match the
+    behaviour they are named after, which is worse than capturing nothing at all.
+    """
+    payload = json.dumps({"provider": DETERMINISTIC_PROVIDER, "model_id": ""}).encode("utf-8")
+    request = Request(
+        f"{AGENT_URL}/api/providers/current",
+        data=payload,
+        method="PUT",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=5) as response:
+            # Read so the request is completed before the browser opens, and cast because urllib is
+            # untyped — the status is not used, only the fact that the call returned.
+            int(response.status)
+            response.read()
+    except (URLError, OSError) as exc:
+        raise TaskError(
+            f"could not put the agent back on {DETERMINISTIC_PROVIDER!r} before capturing "
+            f"({type(exc).__name__}). These frames are named after the deterministic provider's "
+            f"behaviour, so taking them against a live model would label them wrongly."
+        ) from exc
+
+
 def _require_running_stack() -> None:
     """Refuse to draw a run nobody is serving, naming which piece is missing.
 
@@ -872,7 +919,8 @@ def _sign_in(page: Chrome) -> None:
     of the two would fail on the other with a timeout naming the wrong thing.
 
     Chainlit's own field is labelled "Email address"; this app takes the account *name* in it, which
-    is documented in HOW-TO-TEST.md and is why nothing here looks like an email.
+    is documented in README.md (section "Adding a new chat user") and is why nothing here looks like
+    an email.
     """
     page.goto(f"{CHAT_URL}/")
     # Wait for *either* screen before deciding which one this is. Checking for the login form
@@ -892,7 +940,7 @@ def _sign_in(page: Chrome) -> None:
         raise TaskError(
             "the chat is asking for a login, but CHAT_USERS is in neither .env nor the "
             "environment, so this task has no account to sign in with. Set CHAT_USERS (see "
-            "HOW-TO-TEST.md, section 2.1) or start the chat without it."
+            "README.md) or start the chat without it."
         )
     name, password = accounts[0]
     page.type_keys("#email", name)
@@ -1110,7 +1158,7 @@ def _published_dirnames(parent: Path) -> list[str]:
 
     Tracked rather than merely present — see `json_report`. `git ls-files` lists every file
     under the directory, and only the first path segment of each is kept, so a nested file such
-    as `docs/adr/0001-*.md` contributes `adr` once.
+    as `docs/media/01-loaded.png` contributes `media` once.
 
     Falls back to the directory listing when git cannot answer — an exported tarball, a
     checkout with no repository — so the command still describes something useful instead of
@@ -1132,8 +1180,8 @@ def _published_dirnames(parent: Path) -> list[str]:
         return sorted(p.name for p in parent.iterdir() if p.is_dir())
 
     # `git ls-files` reports paths relative to the *repository root*, not to the pathspec, so
-    # the segment after `parent`'s own depth is the one wanted: for `docs/adr/0001-*.md` with
-    # parent `docs`, that is `adr`. Taking the first segment instead produced `docs`, which is
+    # the segment after `parent`'s own depth is the one wanted: for `docs/media/01-loaded.png` with
+    # parent `docs`, that is `media`. Taking the first segment instead produced `docs`, which is
     # not a subdirectory of `docs` — the report came back empty, and the test that pins the
     # published subset is what caught it.
     depth = len(parent.relative_to(REPO_ROOT).parts)
@@ -1149,7 +1197,7 @@ def _published_dirnames(parent: Path) -> list[str]:
 #: Where a run's spans are on *this* machine, when `--dir` does not say otherwise.
 #:
 #: `data/dbview/traces`, because that is where the documented way of reading a trace on the host
-#: puts them: `HOW-TO-TEST.md` section 6 starts the stack with `docker-compose.dbview.yml`, which
+#: puts them: the `dbview` override starts the stack with `docker-compose.dbview.yml`, which
 #: replaces the agent's `/data` volume with `./data/dbview/`. A default of `data/traces` would be
 #: the *service's* default rather than the reader's — and it is a directory nothing has written to,
 #: which reads as "no traces yet" on a machine that has plenty.
@@ -1279,7 +1327,7 @@ def traces(extra: Sequence[str] = ()) -> int:
     that guessed them from the file would be inventing the fields a reader most wants to trust.
 
     Under plain compose the files are inside the agent container, so the documented way to read them
-    on the host is the `dbview` override (`HOW-TO-TEST.md`, section 6) — which is where the default
+    on the host is the `dbview` override — which is where the default
     comes from. For anywhere else — a copy pulled out of a container, a colleague's run — pass
     `--dir`.
     """
