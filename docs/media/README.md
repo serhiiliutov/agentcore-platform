@@ -198,6 +198,12 @@ first, because a frame named "a proposed write" that photographed whatever a liv
 would be reproducible in name only. Use it when the markup or the chat's behaviour changes and the frames
 need regenerating; use this document when you want the frames to show a real model choosing the tools.
 
+It drives a browser over the Chrome DevTools Protocol and looks for one in the usual places per platform,
+so it needs Chrome or Edge installed and no extra dependency. `CHROME_PATH` overrides that search with an
+explicit executable — a setting for the machine doing the capture rather than for the stack, which is why
+it is documented here and not in `.env.example`. With no browser found the command fails and says so; it
+does not write placeholder images.
+
 ## What the images are not
 
 - **Not staged.** Every pixel came from a browser, against the running stack, with the mock's real data
