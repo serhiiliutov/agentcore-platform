@@ -216,7 +216,7 @@ its session cookie with.
 
 ```bash
 uv run --project services/chat chainlit create-secret
-# prints: CHAINLIT_AUTH_SECRET="<a random string>"
+# prints the line to paste into .env, with a freshly generated value for you
 ```
 
 **Step 2 — add both lines to `.env`.** `CHAT_USERS` is a comma-separated list of `name:password` pairs;
@@ -225,10 +225,10 @@ password may itself contain one. Append the new user to the existing list rather
 secret must be a real one wherever the chat is shared — it is what stops a session cookie being forged —
 and every instance must use the **same** value, or a restart logs everybody out.
 
-```dotenv
-CHAT_USERS=alice:correct-horse,bob:swordfish,priya:a-third-password
-CHAINLIT_AUTH_SECRET="the value create-secret printed"
-```
+Two lines go into that file, in the shape [`.env.example`](.env.example) already documents: `CHAT_USERS`
+holding the `name:password` pairs, and `CHAINLIT_AUTH_SECRET` set to the value `create-secret` printed.
+The template comments both out, so uncomment them as you fill them in — and note that the value must be
+the *generated* one, never a phrase like this paragraph's.
 
 **Step 3 — restart the chat.** `Ctrl+C` its terminal and run `uv run python -m devtasks chat` again.
 Reload the page; there is now a login screen. The field is labelled *Email address* because that is
